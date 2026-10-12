@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+npm-debug.log
+Dockerfile
+.dockerignore
+render.yaml
+test
+bench.js
+data
+*.txt
+*.log

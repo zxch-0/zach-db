@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: zach-db
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Dossier lu par l'API quand on passe ?dir=/... (facultatif).
+      # Montez un disque Render et pointez cette variable dessus, sinon laissez vide.
+      - key: ZACH_DB_DIR
+        sync: false
