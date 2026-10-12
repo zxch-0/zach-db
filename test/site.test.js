@@ -136,3 +136,95 @@ test('api : gros corps envoyé en flux', async () => {
   assert.equal(outLines[0], 'user0:pass0');
   assert.equal(outLines[lines - 1], 'user' + (lines - 1) + ':pass' + (lines - 1));
 });
+
+/* ---------- API de tri par site ---------- */
+
+test('api group : liste des sites (JSON, TSV, exact)', async () => {
+  const body = [
+    'https://www.roblox.com/tr/CreateAccount:Thou_miriba:N2Z6PQXg4XLnTSi',
+    'http://www.netflix.com/browse/login:user1:pass1',
+    'https://account.roblox.com/login:user2:pass2',
+    'https://monsite.com:443/a:user4:pass4',
+  ].join('\n') + '\n';
+
+  const json = await (await fetch(base + '/api/group', { method: 'POST', body })).json();
+  assert.equal(json.total, 3);
+  assert.equal(json.truncated, false);
+  const byName = new Map(json.sites.map((entry) => [entry.site, entry]));
+  assert.equal(byName.get('roblox.com').count, 2);
+  assert.equal(byName.get('netflix.com').count, 1);
+  assert.deepEqual(json.sites.map((entry) => entry.site), ['roblox.com', 'monsite.com', 'netflix.com']);
+  assert.equal(json.stats.kept, 4);
+
+  const tsv = await fetch(base + '/api/group?format=tsv', { method: 'POST', body });
+  assert.equal(tsv.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.equal(await tsv.text(), 'roblox.com\t2\t40\nmonsite.com\t1\t12\nnetflix.com\t1\t12\n');
+
+  const exact = await (await fetch(base + '/api/group?subdomains=0', { method: 'POST', body })).json();
+  assert.deepEqual([...exact.sites.map((entry) => entry.site)].sort(),
+    ['account.roblox.com', 'monsite.com', 'www.netflix.com', 'www.roblox.com']);
+});
+
+test('api group : un site, en texte et en ndjson', async () => {
+  const body = [
+    'https://www.roblox.com/a:x1:y1',
+    'https://www.netflix.com/b:x2:y2',
+    'https://account.roblox.com/c:x3:y3',
+  ].join('\n') + '\n';
+
+  const response = await fetch(base + '/api/group?site=roblox.com', { method: 'POST', body });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.match(response.headers.get('content-disposition'), /zach-db-roblox.com.txt/);
+  assert.equal(await response.text(), 'x1:y1\nx3:y3\n');
+
+  const ndjson = await (await fetch(base + '/api/group?site=roblox.com&format=ndjson', { method: 'POST', body })).text();
+  assert.equal(ndjson, '"x1:y1"\n"x3:y3"\n');
+
+  const none = await fetch(base + '/api/group?site=spotify.com', { method: 'POST', body });
+  assert.equal(none.status, 200);
+  assert.equal(await none.text(), '');
+
+  // /api/extract?group=1 fonctionne aussi
+  const alias = await (await fetch(base + '/api/extract?group=1&site=netflix.com', { method: 'POST', body })).text();
+  assert.equal(alias, 'x2:y2\n');
+});
+
+test('api group : dossier du serveur et erreurs', async () => {
+  const liste = await fetch(base + '/api/group?dir=/');
+  assert.equal(liste.status, 200);
+  const payload = await liste.json();
+  // sample2.txt ("alpha:beta42") n'a pas d'URL → bucket "(sans site)"
+  assert.deepEqual([...payload.sites.map((entry) => entry.site)].sort(),
+    ['(sans site)', 'roblox.com', 'site.com']);
+
+  const one = await fetch(base + '/api/group?dir=/&paths=1&site=site.com', { method: 'POST', body: 'sample1.txt\n' });
+  assert.equal(await one.text(), 'user1:pass1\n');
+
+  const bad = await fetch(base + '/api/group?dir=/../');
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /hors du dossier/);
+});
+
+test('api group : gros corps en flux', async () => {
+  const lines = 100000;
+  const sites = ['roblox.com', 'netflix.com', 'spotify.com'];
+  const text = Array.from({ length: lines }, (_, i) =>
+    'https://www.' + sites[i % sites.length] + '/x:user' + i + ':pass' + i).join('\n') + '\n';
+
+  const payload = await (await fetch(base + '/api/group', { method: 'POST', body: text })).json();
+  assert.equal(payload.total, 3);
+  let total = 0;
+  for (const entry of payload.sites) {
+    assert.ok(entry.count >= Math.floor(lines / 3), entry.site + ' : ' + entry.count);
+    total += entry.count;
+  }
+  assert.equal(total, lines, 'aucune valeur perdue');
+
+  const started = Date.now();
+  const response = await fetch(base + '/api/group?site=netflix.com', { method: 'POST', body: text });
+  const out = await response.text();
+  assert.equal(out.split('\n').filter(Boolean).length, 33333);
+  assert.ok(Date.now() - started < 30000);
+  assert.match(out.split('\n')[0], /^user\d+:pass\d+$/);
+});

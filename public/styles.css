@@ -101,3 +101,83 @@ footer {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* ---------- onglets ---------- */
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.tab {
+  font: inherit;
+  padding: 6px 14px;
+  background: #fff;
+  color: #000;
+  border: 2px solid #000;
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] { background: #000; color: #fff; }
+
+header p { margin-bottom: 0; }
+
+/* ---------- trier par site ---------- */
+
+#glistBox { margin-bottom: 16px; }
+
+#gfilter {
+  width: 100%;
+  border: 1px solid #000;
+  padding: 6px;
+  background: #fff;
+  color: #000;
+  font: inherit;
+  margin-bottom: 8px;
+}
+
+#gsummary { margin: 0 0 6px; }
+
+.sites {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #000;
+  max-height: 380px;
+  overflow: auto;
+}
+
+.sites li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 6px;
+  border-bottom: 1px solid #000;
+}
+
+.sites li:last-child { border-bottom: 0; }
+
+.siteLink {
+  font: inherit;
+  border: 0;
+  background: none;
+  color: #000;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: left;
+  word-break: break-all;
+}
+
+.count { margin-left: auto; white-space: nowrap; }
+
+#gresult { margin-bottom: 16px; }
+
+#gtext {
+  border: 1px solid #000;
+  padding: 8px;
+  margin: 0;
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre;
+  font-size: 12px;
+}
+
+.note { border: 1px solid #000; padding: 6px; margin: 8px 0 0; }

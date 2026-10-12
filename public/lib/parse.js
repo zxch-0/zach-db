@@ -198,12 +198,118 @@ function extractLine(line, mode, customRe, keepHosts, scratch) {
   return best;
 }
 
+/**
+ * Fabrique un extracteur de ligne réutilisable : renvoie la valeur extraite
+ * ('user:pass', plusieurs lignes pour le mode "all") ou null.
+ * Utilisé par createProcessor et par createGrouper (onglet "trier par site").
+ */
+export function createLineExtractor(options = {}) {
+  const mode = MODES.includes(options.mode) ? options.mode : 'last';
+  const customRe = mode === 'custom' ? compileCustom(options.regex) : null;
+  const keepHosts = isTruthy(options.hosts);
+  const scratch = [];
+  return (line) => {
+    if (line.length && line.charCodeAt(line.length - 1) === 13) line = line.slice(0, -1);
+    return extractLine(line, mode, customRe, keepHosts, scratch);
+  };
+}
+
+/**
+ * Découpe un texte en lignes au fil de l'eau (les lignes à cheval sur deux
+ * blocs sont conservées) et passe chacune à `onLine`.
+ * `onLine` renvoie ce qu'il faut accumuler (ou null). Le texte accumulé est
+ * renvoyé par push()/flush().
+ */
+export function createLineFeeder(onLine) {
+  let rest = '';
+  let single = null;
+
+  function collect(line) {
+    const out = onLine(line);
+    if (out === null || out === '') return;
+    single = single === null ? out : single + out;
+  }
+
+  function take() {
+    const out = single === null ? '' : single;
+    single = null;
+    return out;
+  }
+
+  return {
+    push(text) {
+      if (rest) {
+        text = rest + text;
+        rest = '';
+      }
+      let start = 0;
+      let nl;
+      while ((nl = text.indexOf('\n', start)) !== -1) {
+        collect(text.slice(start, nl));
+        start = nl + 1;
+      }
+      if (start < text.length) rest = text.slice(start);
+      return take();
+    },
+    flush() {
+      if (rest) {
+        const line = rest;
+        rest = '';
+        collect(line);
+      }
+      return take();
+    },
+  };
+}
+
 /* ------------------------------------------------------------------ *
  * 3. Décodage des octets (UTF-8, UTF-16 avec BOM)
  * ------------------------------------------------------------------ */
 
 const BOM_LE = [0xff, 0xfe];
 const BOM_BE = [0xfe, 0xff];
+
+/**
+ * Décodeur d'octets incrémental réutilisable (UTF-8, ou UTF-16 si BOM).
+ * Le décodage se fait sans le mode streaming de TextDecoder (beaucoup plus
+ * rapide) : les séquences UTF-8 à cheval sur deux blocs sont conservées.
+ */
+export function createBytesDecoder() {
+  let decoder = new TextDecoder('utf-8');
+  let ready = false;
+  let pending = null;
+  return {
+    pushBytes(bytes) {
+      if (!ready) {
+        ready = true;
+        if (bytes.length >= 2) {
+          if (bytes[0] === BOM_LE[0] && bytes[1] === BOM_LE[1]) decoder = new TextDecoder('utf-16le');
+          else if (bytes[0] === BOM_BE[0] && bytes[1] === BOM_BE[1]) {
+            try {
+              decoder = new TextDecoder('utf-16be');
+            } catch {
+              /* certains runtimes n'ont pas utf-16be : on reste en utf-8 */
+            }
+          }
+        }
+      }
+      if (pending) {
+        bytes = concatBytes(pending, bytes);
+        pending = null;
+      }
+      const tail = incompleteTail(bytes, bytes.length);
+      if (tail === 0) return decoder.decode(bytes);
+      const body = bytes.subarray(0, bytes.length - tail);
+      pending = bytes.subarray(bytes.length - tail);
+      return decoder.decode(body);
+    },
+    flush() {
+      const out = pending ? decoder.decode(pending) : '';
+      pending = null;
+      return out + decoder.decode();
+    },
+  };
+}
 
 /**
  * Longueur de la séquence UTF-8 incomplète en fin de bloc (0 si le bloc
@@ -270,14 +376,11 @@ export function createProcessor(options = {}) {
   const skipBytes = Number(opts.skip) > 0 ? Number(opts.skip) : 0;
   const limitBytes = Number(opts.limit) > 0 ? Number(opts.limit) : Infinity;
   const windowEnd = skipBytes + limitBytes;
-  const scratch = [];
   const stats = { lines: 0, matched: 0, outLines: 0, outChars: 0, emittedBytes: 0 };
   let pos = 0; // position dans la sortie complète
 
-  let decoder = new TextDecoder('utf-8');
-  let decoderReady = false;
-  let pending = null; // octets d'une séquence UTF-8 à cheval sur deux blocs
-  let rest = ''; // fin de ligne à cheval sur deux blocs
+  const decode = createBytesDecoder();
+  const readLine = createLineExtractor({ mode, regex: opts.regex, hosts: keepHosts });
 
   /**
    * Comptabilise un bloc de sortie (1 ou plusieurs lignes, '\n' final inclus)
@@ -296,8 +399,7 @@ export function createProcessor(options = {}) {
 
   function handleLine(line) {
     stats.lines++;
-    if (line.length && line.charCodeAt(line.length - 1) === 13) line = line.slice(0, -1); // CRLF
-    const out = extractLine(line, mode, customRe, keepHosts, scratch);
+    const out = readLine(line);
     if (out === null) return null;
     stats.matched++;
 
@@ -325,64 +427,18 @@ export function createProcessor(options = {}) {
     return emit(countOnly ? '' : kept + '\n', keptRows, keptBytes);
   }
 
+  const feed = createLineFeeder(handleLine);
+
   function push(text) {
-    if (rest) {
-      text = rest + text;
-      rest = '';
-    }
-    const parts = [];
-    let start = 0;
-    let nl;
-    while ((nl = text.indexOf('\n', start)) !== -1) {
-      const out = handleLine(text.slice(start, nl));
-      if (out !== null) parts.push(out);
-      start = nl + 1;
-    }
-    if (start < text.length) rest = text.slice(start);
-    if (parts.length === 0) return '';
-    return parts.length === 1 ? parts[0] : parts.join('');
+    return feed.push(text);
   }
 
   function pushBytes(bytes) {
-    if (!decoderReady) {
-      decoderReady = true;
-      if (bytes.length >= 2) {
-        if (bytes[0] === BOM_LE[0] && bytes[1] === BOM_LE[1]) decoder = new TextDecoder('utf-16le');
-        else if (bytes[0] === BOM_BE[0] && bytes[1] === BOM_BE[1]) {
-          try {
-            decoder = new TextDecoder('utf-16be');
-          } catch {
-            /* certains runtimes n'ont pas utf-16be : on reste en utf-8 */
-          }
-        }
-      }
-    }
-    if (pending) {
-      bytes = concatBytes(pending, bytes);
-      pending = null;
-    }
-    const tail = incompleteTail(bytes, bytes.length);
-    let body = bytes;
-    if (tail > 0) {
-      body = bytes.subarray(0, bytes.length - tail);
-      pending = bytes.subarray(bytes.length - tail);
-    }
-    return push(decoder.decode(body));
+    return push(decode.pushBytes(bytes));
   }
 
   function flush() {
-    let out = '';
-    if (pending) {
-      out += push(decoder.decode(pending));
-      pending = null;
-    }
-    out += push(decoder.decode());
-    if (rest) {
-      const tail = handleLine(rest);
-      rest = '';
-      if (tail !== null) out += tail;
-    }
-    return out;
+    return push(decode.flush()) + feed.flush();
   }
 
   return {

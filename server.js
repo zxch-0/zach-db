@@ -20,6 +20,7 @@ import { once } from 'node:events';
 import zlib, { createGzip, createBrotliCompress } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { createProcessor, MODES } from './public/lib/parse.js';
+import { createGrouper } from './public/lib/group.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -193,54 +194,61 @@ async function* fileSource(files) {
   }
 }
 
-async function handleExtract(req, res, url) {
-  let options;
-  try {
-    options = readOptions(url);
-  } catch (err) {
-    return sendJson(res, 400, { error: err.message });
-  }
-
+/**
+ * Détermine la source à traiter : le corps de la requête, ou des fichiers du
+ * disque du serveur (?dir=/…). Renvoie null si la réponse est déjà partie.
+ */
+async function resolveSource(req, res, url) {
   const params = url.searchParams;
   const dirParam = params.get('dir');
-  const wantsPaths = dirParam !== null;
+  if (dirParam === null) return { source: bodySource(req), label: 'corps' };
+
+  let wanted = [];
+  if (req.method === 'POST') {
+    if (params.get('paths') !== '1') {
+      sendJson(res, 400, {
+        error: 'corps texte + dir= est ambigu : ajoutez ?paths=1 (le corps doit lister des noms de fichiers)',
+      });
+      return null;
+    }
+    let raw = '';
+    for await (const chunk of req) {
+      raw += chunk;
+      if (raw.length > 1 << 20) {
+        sendJson(res, 400, { error: 'liste de fichiers trop longue' });
+        return null;
+      }
+    }
+    wanted = raw.split('\n').map((line) => line.trim()).filter(Boolean);
+  }
+
+  let files;
+  try {
+    files = await listDir(dirParam, wanted);
+  } catch (err) {
+    sendJson(res, 400, { error: err.message });
+    return null;
+  }
+  if (files.length === 0) {
+    sendJson(res, 400, { error: 'aucun fichier à traiter' });
+    return null;
+  }
+  return { source: fileSource(files), label: 'dir:' + dirParam };
+}
+
+/** En-têtes + compression pour une réponse en flux. */
+function startStream(req, res, url, { name, type, disposition = 'attachment' }) {
   const accepts = String(req.headers['accept-encoding'] || '');
-  const compress = params.get('gz') !== '0'
+  const compress = url.searchParams.get('gz') !== '0'
     ? (accepts.includes('gzip') ? 'gzip' : accepts.includes('br') ? 'br' : null)
     : null;
 
-  let files = [];
-  if (wantsPaths) {
-    let wanted = [];
-    if (req.method === 'POST') {
-      if (params.get('paths') !== '1') {
-        return sendJson(res, 400, {
-          error: 'corps texte + dir= est ambigu : ajoutez ?paths=1 (le corps doit lister des noms de fichiers)',
-        });
-      }
-      let raw = '';
-      for await (const chunk of req) {
-        raw += chunk;
-        if (raw.length > 1 << 20) return sendJson(res, 400, { error: 'liste de fichiers trop longue' });
-      }
-      wanted = raw.split('\n').map((line) => line.trim()).filter(Boolean);
-    }
-    try {
-      files = await listDir(dirParam, wanted);
-    } catch (err) {
-      return sendJson(res, 400, { error: err.message });
-    }
-    if (files.length === 0) return sendJson(res, 400, { error: 'aucun fichier à traiter' });
+  const headers = { 'content-type': type, 'cache-control': 'no-store', 'x-accel-buffering': 'no' };
+  if (disposition) {
+    headers['content-disposition'] =
+      disposition + '; filename="' + String(name || 'zach-db.txt').replace(/[^\w.-]+/g, '_') + '"';
   }
 
-  // Tout est validé : les en-têtes peuvent partir.
-  const name = (params.get('name') || 'zach-db-extract.txt').replace(/[^\w.-]+/g, '_');
-  const headers = {
-    'content-type': 'text/plain; charset=utf-8',
-    'content-disposition': 'attachment; filename="' + name + '"',
-    'cache-control': 'no-store',
-    'x-accel-buffering': 'no',
-  };
   let sink = res;
   let compressor = null;
   if (compress === 'gzip') {
@@ -255,10 +263,40 @@ async function handleExtract(req, res, url) {
     compressor.pipe(res);
     sink = compressor;
   }
+  return { writer: createWriter(res, sink), compressor };
+}
 
-  const writer = createWriter(res, sink);
+/** Termine proprement une réponse en flux (ou coupe si le transfert a échoué). */
+function endStream(res, compressor, failure, writer) {
+  if (failure && !writer.closed) {
+    // Transfert déjà commencé : on coupe plutôt que de livrer un fichier tronqué.
+    process.stderr.write('[zach-db] flux interrompu : ' + failure.message + '\n');
+    res.destroy();
+    if (compressor) compressor.destroy();
+    return;
+  }
+  if (compressor) compressor.end();
+  else res.end();
+}
+
+async function handleExtract(req, res, url) {
+  let options;
+  try {
+    options = readOptions(url);
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message });
+  }
+
+  const resolved = await resolveSource(req, res, url);
+  if (resolved === null) return undefined;
+  const { source, label } = resolved;
+
+  // Tout est validé : les en-têtes peuvent partir.
+  const { writer, compressor } = startStream(req, res, url, {
+    name: url.searchParams.get('name') || 'zach-db-extract.txt',
+    type: 'text/plain; charset=utf-8',
+  });
   const processor = createProcessor(options);
-  const source = wantsPaths ? fileSource(files) : bodySource(req);
   let bytesIn = 0;
   let failure = null;
 
@@ -281,18 +319,128 @@ async function handleExtract(req, res, url) {
   process.stdout.write(
     '[zach-db] extract mode=' + options.mode + ' dedupe=' + (options.dedupe ? 1 : 0) +
     ' entrée=' + bytesIn + 'o sortie=' + stats.outLines + ' lignes/' + stats.outChars + 'o' +
-    ' source=' + (wantsPaths ? 'dir:' + dirParam : 'corps') + '\n'
+    ' source=' + label + '\n'
   );
+  endStream(res, compressor, failure, writer);
+  return undefined;
+}
 
-  if (failure && !writer.closed) {
-    // Transfert déjà commencé : on coupe plutôt que de livrer un fichier tronqué.
-    process.stderr.write('[zach-db] flux interrompu : ' + failure.message + '\n');
-    res.destroy();
-    if (compressor) compressor.destroy();
-    return;
+/* ---------- groupement par site (onglet "trier par site") ---------- */
+
+const MAX_SITES_JSON = 50000;
+
+/** Passe de groupement ciblée sur un site, écrite au fil de l'eau. */
+async function runGrouped(req, res, source, options, site, subdomains, writer, compressor, encode, log) {
+  const pending = [];
+  const grouper = createGrouper({
+    mode: options.mode, regex: options.regex, hosts: options.hosts, dedupe: options.dedupe,
+    stripSubdomains: !subdomains, onlySite: site, keepText: false, maxTextBytes: 0,
+    onValue: (name, value) => pending.push(encode(value)),
+  });
+  let bytesIn = 0;
+  let failure = null;
+
+  try {
+    for await (const chunk of source) {
+      if (writer.closed) break;
+      bytesIn += chunk.length;
+      grouper.pushBytes(chunk);
+      if (pending.length) {
+        await writer.write(pending.join(''));
+        pending.length = 0;
+      }
+    }
+    if (!writer.closed) {
+      grouper.flush();
+      if (pending.length) await writer.write(pending.join(''));
+      pending.length = 0;
+    }
+  } catch (err) {
+    failure = err;
   }
-  if (compressor) compressor.end();
-  else res.end();
+
+  log(grouper, bytesIn);
+  endStream(res, compressor, failure, writer);
+  return undefined;
+}
+
+async function handleGroup(req, res, url) {
+  const params = url.searchParams;
+  let options;
+  try {
+    options = readOptions(url);
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message });
+  }
+  const exact = ['0', 'false', 'off', 'no'].includes((params.get('subdomains') || '').toLowerCase());
+  const site = params.get('site');
+  const format = (params.get('format') || (site ? 'txt' : 'json')).toLowerCase();
+
+  const resolved = await resolveSource(req, res, url);
+  if (resolved === null) return undefined;
+  const { source, label } = resolved;
+
+  // 1) un seul site : les valeurs partent au fil de l'eau, rien n'est stocké.
+  if (site) {
+    if (format === 'ndjson') {
+      const { writer, compressor } = startStream(req, res, url, {
+        name: 'zach-db-' + site + '.ndjson',
+        type: 'application/x-ndjson; charset=utf-8',
+      });
+      return runGrouped(req, res, source, options, site, exact, writer, compressor,
+        (value) => JSON.stringify(value) + '\n',
+        (grouper, bytesIn) => process.stdout.write('[zach-db] group site=' + site + ' ndjson entrée=' +
+          bytesIn + 'o valeurs=' + grouper.stats().kept + '\n'));
+    }
+    const { writer, compressor } = startStream(req, res, url, {
+      name: params.get('name') || 'zach-db-' + site + '.txt',
+      type: 'text/plain; charset=utf-8',
+    });
+    return runGrouped(req, res, source, options, site, exact, writer, compressor,
+      (value) => value + '\n',
+      (grouper, bytesIn) => {
+        const stats = grouper.stats();
+        process.stdout.write('[zach-db] group site=' + site + ' entrée=' + bytesIn + 'o valeurs=' +
+          stats.kept + ' sortie=' + stats.bytes + 'o\n');
+      });
+  }
+
+  // 2) la liste des sites : un passage complet, puis la réponse.
+  const grouper = createGrouper({
+    mode: options.mode, regex: options.regex, hosts: options.hosts, dedupe: options.dedupe,
+    stripSubdomains: !exact, keepText: false, maxTextBytes: 0,
+  });
+  let bytesIn = 0;
+  let failure = null;
+  try {
+    for await (const chunk of source) {
+      bytesIn += chunk.length;
+      grouper.pushBytes(chunk);
+    }
+    grouper.flush();
+  } catch (err) {
+    failure = err;
+  }
+  if (failure) return sendJson(res, 400, { error: failure.message });
+
+  const order = grouper.order();
+  const stats = grouper.stats();
+  const sites = order.slice(0, MAX_SITES_JSON).map((entry) => ({
+    site: entry.site, count: entry.count, bytes: entry.bytes,
+  }));
+  process.stdout.write('[zach-db] group liste entrée=' + bytesIn + 'o sites=' + order.length +
+    ' valeurs=' + stats.kept + ' source=' + label + '\n');
+
+  if (format === 'tsv' || format === 'text') {
+    const body = sites.map((entry) => entry.site + '\t' + entry.count + '\t' + entry.bytes).join('\n');
+    return sendText(res, 200, body + (body ? '\n' : ''), 'text/plain; charset=utf-8');
+  }
+  return sendJson(res, 200, {
+    total: order.length,
+    truncated: order.length > MAX_SITES_JSON,
+    sites,
+    stats: { lines: stats.lines, matched: stats.matched, kept: stats.kept, skipped: stats.skipped },
+  });
 }
 
 /* ---------- serveur ---------- */
@@ -313,9 +461,11 @@ export function createServer() {
     if (url.pathname === '/api/health') {
       return sendJson(res, 200, { ok: true, version: VERSION, dir: DATA_DIR, uptime: process.uptime() });
     }
-    if (url.pathname === '/api/extract') {
+    if (url.pathname === '/api/extract' || url.pathname === '/api/group') {
+      const group = url.pathname === '/api/group' ||
+        ['1', 'true', 'on'].includes(url.searchParams.get('group'));
       if (req.method === 'POST' || (req.method === 'GET' && url.searchParams.get('dir') !== null)) {
-        return await handleExtract(req, res, url);
+        return group ? await handleGroup(req, res, url) : await handleExtract(req, res, url);
       }
       return sendJson(res, 405, { error: 'utilisez POST (corps = texte) ou GET ?dir=/dossier' });
     }
