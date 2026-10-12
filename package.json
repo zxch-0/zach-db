@@ -1,0 +1,19 @@
+{
+  "name": "zach-db",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Extraction ultra-rapide de morceaux texte:texte depuis de gros fichiers .txt",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "cli": "node cli.js",
+    "bench": "node bench.js",
+    "check": "node --check server.js && node --check cli.js && node --check public/lib/parse.js && node --check public/app.js && node --check public/worker.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
