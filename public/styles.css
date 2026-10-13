@@ -20,8 +20,8 @@
   --hair-2: rgba(10, 10, 10, 0.16);
   --tick: rgba(10, 10, 10, 0.34);
   --grid: rgba(10, 10, 10, 0.055);
-  --glow: rgba(10, 10, 10, 0.075);
-  --glass: rgba(255, 255, 255, 0.72);
+  --glow: rgba(10, 10, 10, 0.04);
+  --glass: rgba(255, 255, 255, 0.92);
   --hover: rgba(10, 10, 10, 0.035);
 
   /* --- inversion (badges, barre de titre, bouton plein) --- */
@@ -63,8 +63,8 @@
     --hair-2: rgba(255, 255, 255, 0.19);
     --tick: rgba(255, 255, 255, 0.34);
     --grid: rgba(255, 255, 255, 0.05);
-    --glow: rgba(255, 255, 255, 0.07);
-    --glass: rgba(7, 7, 7, 0.72);
+    --glow: rgba(255, 255, 255, 0.04);
+    --glass: rgba(7, 7, 7, 0.92);
     --hover: rgba(255, 255, 255, 0.04);
 
     --flip-bg: #f6f6f6;
@@ -154,10 +154,10 @@ code {
 
 .ambient-glow {
   position: absolute;
-  top: -22vw;
-  right: -14vw;
-  width: 62vw;
-  height: 62vw;
+  top: -16vw;
+  right: -10vw;
+  width: 40vw;
+  height: 40vw;
   border-radius: 50%;
   background: radial-gradient(circle, var(--glow), transparent 62%);
   animation: drift 30s ease-in-out infinite alternate;
@@ -166,10 +166,10 @@ code {
 .ambient-glow--2 {
   top: auto;
   right: auto;
-  bottom: -28vw;
-  left: -18vw;
-  width: 48vw;
-  height: 48vw;
+  bottom: -20vw;
+  left: -12vw;
+  width: 32vw;
+  height: 32vw;
   animation-duration: 38s;
   animation-direction: alternate-reverse;
 }
@@ -217,38 +217,21 @@ header, main, footer { position: relative; z-index: 1; }
   top: 0;
   z-index: 30;
   background: var(--glass);
-  -webkit-backdrop-filter: blur(16px) saturate(1.5);
-  backdrop-filter: blur(16px) saturate(1.5);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--hair);
+  transition: box-shadow 0.3s;
 }
-
-/* fondu très léger sous l’en-tête : le contenu qui défile s’y efface */
-.site-head::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 12px;
-  background: linear-gradient(var(--glass), transparent);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-body.is-scrolled .site-head::after { opacity: 1; }
 
 body.is-scrolled .site-head {
-  border-bottom-color: var(--hair);
-  box-shadow: 0 18px 40px -34px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 6px 18px -14px rgba(0, 0, 0, 0.9);
 }
 
 .head-inner {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 12px 0;
+  gap: 14px;
+  padding: 7px 0;
 }
 
 .brand {
@@ -263,13 +246,13 @@ body.is-scrolled .site-head {
   position: relative;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
+  width: 31px;
+  height: 31px;
+  border-radius: 9px;
   background: var(--flip-bg);
   color: var(--flip-fg);
   font-family: var(--mono);
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 700;
   line-height: 1;
   box-shadow: var(--shadow-2);
@@ -291,8 +274,8 @@ body.is-scrolled .site-head {
 }
 
 .brand-text { display: flex; flex-direction: column; line-height: 1.25; }
-.brand-text strong { font-size: 17px; letter-spacing: -0.03em; }
-.brand-sub { font-size: 11.5px; color: var(--muted); letter-spacing: 0.01em; }
+.brand-text strong { font-size: 15px; letter-spacing: -0.03em; }
+.brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.01em; }
 
 .nav {
   display: flex;
@@ -341,53 +324,40 @@ body.is-scrolled .site-head {
   color: var(--ink-soft);
 }
 
+/* bouton Discord compact : petit logo, fond uni, ombre légère */
 .discord-link {
-  position: relative;
-  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
-  min-height: 40px;
-  padding: 8px 12px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  min-height: 30px;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid rgba(88, 101, 242, 0.35);
   border-radius: 999px;
-  background: linear-gradient(135deg, #5865f2 0%, #5360dc 58%, #4752c4 100%);
-  box-shadow: 0 5px 16px rgba(88, 101, 242, 0.27), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  background: #5865f2;
+  box-shadow: 0 2px 8px rgba(88, 101, 242, 0.22);
   color: #fff;
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.01em;
   line-height: 1;
   text-decoration: none;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
-}
-
-.discord-link::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  content: "";
-  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.22) 48%, transparent 76%);
-  transform: translateX(-120%);
-  transition: transform 0.5s ease;
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .discord-link:hover {
   color: #fff;
-  box-shadow: 0 8px 22px rgba(88, 101, 242, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  filter: saturate(1.12);
+  background: #4752c4;
+  box-shadow: 0 3px 10px rgba(88, 101, 242, 0.3);
   transform: translateY(-1px);
 }
 
-.discord-link:hover::before { transform: translateX(120%); }
 .discord-link:active { transform: translateY(0) scale(0.98); }
-.discord-logo { display: block; width: 18px; height: 18px; flex: none; }
-.discord-label { position: relative; white-space: nowrap; }
-.discord-arrow { display: block; width: 14px; height: 14px; flex: none; opacity: 0.86; transition: transform 0.2s ease; }
+.discord-logo { display: block; width: 14px; height: 14px; flex: none; }
+.discord-label { white-space: nowrap; }
+.discord-arrow { display: block; width: 10px; height: 10px; flex: none; opacity: 0.75; transition: transform 0.2s ease; }
 .discord-link:hover .discord-arrow { transform: translate(1px, -1px); }
 
 .pulse {
@@ -636,9 +606,9 @@ h1 {
   overflow: hidden;
   border-block: 1px solid var(--hair);
   background: var(--panel-2);
-  padding: 12px 0;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
+  padding: 6px 0;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
 }
 
 .marquee-track {
@@ -654,9 +624,9 @@ h1 {
 .marquee-group i {
   font-family: var(--mono);
   font-style: normal;
-  font-size: 10.5px;
+  font-size: 9.5px;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.16em;
   color: var(--muted);
   white-space: nowrap;
   display: inline-flex;
@@ -665,9 +635,9 @@ h1 {
 
 .marquee-group i::after {
   content: "";
-  width: 5px;
-  height: 5px;
-  margin: 0 22px;
+  width: 4px;
+  height: 4px;
+  margin: 0 16px;
   background: var(--tick);
   transform: rotate(45deg);
   flex: none;
@@ -1572,11 +1542,11 @@ html.js .reveal.in {
 @media (max-width: 620px) {
   /* une seule ligne pour la marque : le sous-titre passe à la trappe */
   .brand-sub { display: none; }
-  .mark { width: 34px; height: 34px; border-radius: 10px; font-size: 17px; }
-  .discord-link { gap: 7px; min-height: 36px; padding: 7px 10px; font-size: 11.5px; }
+  .mark { width: 29px; height: 29px; border-radius: 8px; font-size: 15px; }
+  .discord-link { gap: 5px; min-height: 28px; padding: 4px 8px; font-size: 11px; }
   .discord-prefix { display: none; }
-  .discord-logo { width: 17px; height: 17px; }
-  .discord-arrow { width: 13px; height: 13px; }
+  .discord-logo { width: 13px; height: 13px; }
+  .discord-arrow { width: 9px; height: 9px; }
 }
 
 @media (max-width: 780px) {
