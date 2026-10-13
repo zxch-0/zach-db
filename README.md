@@ -63,6 +63,12 @@ Détail des sites :
   (case à décocher pour garder l'hôte exact) ;
 - `roblox.co.uk` reste distinct de `roblox.com` ;
 - une ligne sans URL va dans le groupe `(sans site)` ;
+- seul le site situé **avant le combo, dans le même bloc** (entre crochets
+  `[…]`), compte : un site cité avant un bloc entre crochets, après le
+  combo, ou le domaine d'un email du combo (`…@gmail.com:…`) n'est jamais
+  compté comme un site — sans site associé, la valeur va dans `(sans site)`.
+  Ex. `[https://sso.exemple.com/login:quelquun@gmail.com:mdp](…)` →
+  `sso.exemple.com`, pas `gmail.com` ;
 - les lignes sans couple `xxxx:xxxx` sont simplement comptées comme « ignorées ».
 
 Les modes (dernier couple, premier, le plus long, tous, regex perso)

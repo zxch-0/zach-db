@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGrouper, siteFromLine, normalizeSite, NO_SITE } from '../public/lib/group.js';
+import { createGrouper, siteFromLine, siteForPair, normalizeSite, NO_SITE } from '../public/lib/group.js';
 import { extract } from '../public/lib/parse.js';
 
 const SAMPLE = [
@@ -56,6 +56,72 @@ test('groupement : compteurs, valeurs et ordre', () => {
   assert.equal(map.get('1.2.3.4').text, '1111:admin\n'); // dernier couple de la ligne
   assert.equal(map.get('monsite.com').text, 'user5:pass5\n');
   assert.equal(map.get(NO_SITE).text, 'aaa:bbb\n');
+});
+
+test('seul le site avant le combo compte, pas celui avant les crochets', () => {
+  // le site cité avant le bloc entre crochets est ignoré
+  let map = group(['faux.com [vrai.com:user1:pass1]']).map;
+  assert.equal(map.has('faux.com'), false);
+  assert.equal(map.get('vrai.com').text, 'user1:pass1\n');
+
+  map = group(['[faux.com] vrai.com:user1:pass1']).map;
+  assert.equal(map.has('faux.com'), false);
+  assert.equal(map.get('vrai.com').text, 'user1:pass1\n');
+
+  // aucun site collé au combo : la valeur va dans « (sans site) »
+  map = group(['https://faux.com [user1:pass1]']).map;
+  assert.equal(map.has('faux.com'), false);
+  assert.equal(map.get(NO_SITE).text, 'user1:pass1\n');
+
+  map = group(['https://faux.com [note] user1:pass1']).map;
+  assert.equal(map.has('faux.com'), false);
+  assert.equal(map.get(NO_SITE).text, 'user1:pass1\n');
+
+  // un site cité après le combo ne compte pas non plus
+  map = group(['user1:pass1 https://tard.com/login']).map;
+  assert.equal(map.has('tard.com'), false);
+  assert.equal(map.get(NO_SITE).text, 'user1:pass1\n');
+
+  // lien markdown : le combo gardé décide du site (dernier en « last »,
+  // premier en « first »), pas le site entre crochets
+  const line = '[https://faux.com/x:u1:p1](https://vrai.com/y:u2:p2)';
+  assert.equal(group([line]).map.get('vrai.com').text, 'u2:p2\n');
+  assert.equal(group([line]).map.has('faux.com'), false);
+  assert.equal(group([line], { mode: 'first' }).map.get('faux.com').text, 'x:u1\n');
+
+  // accès direct à l'association site/combo
+  assert.equal(siteForPair('faux.com [vrai.com:user1:pass1]', 'user1:pass1'), 'vrai.com');
+  assert.equal(siteForPair('https://faux.com [user1:pass1]', 'user1:pass1'), null);
+  // le chemin pointé d'une URL n'est pas pris pour le site
+  assert.equal(siteForPair('https://vrai.com/login.php:user1:pass1', 'user1:pass1'), 'vrai.com');
+});
+
+test('le domaine de l’email du combo n’est pas un site (lien entre crochets)', () => {
+  // Forme réelle des fichiers : le site est avant le combo, mais le
+  // combo est un email — son domaine ne doit jamais devenir un site.
+  // (combo fictif : aucun vrai mot de passe dans les tests)
+  const line = '[https://sso.crunchyroll.com/login:quelquun@gmail.com:MOTDEPASSE2009]' +
+    '(https://sso.crunchyroll.com/login:quelquun@gmail.com:MOTDEPASSE2009)';
+
+  for (const mode of ['last', 'first', 'longest', 'all']) {
+    const { map } = group([line], { mode });
+    assert.equal(map.has('gmail.com'), false, 'gmail.com ne doit pas apparaître — mode ' + mode);
+    assert.equal(map.has('sso.crunchyroll.com'), false, 'sous-domaine regroupé — mode ' + mode);
+    assert.ok(map.has('crunchyroll.com'), 'crunchyroll.com attendu — mode ' + mode);
+  }
+
+  // sans regroupement des sous-domaines, le site est exactement sso.crunchyroll.com
+  const exact = group([line], { stripSubdomains: false }).map;
+  assert.equal(exact.has('sso.crunchyroll.com'), true);
+  assert.equal(exact.has('gmail.com'), false);
+  assert.equal(exact.get('sso.crunchyroll.com').text, 'quelquun@gmail.com:MOTDEPASSE2009\n');
+
+  // le même combo sans URL autour : aucun site, surtout pas gmail.com
+  const seul = group(['quelquun@gmail.com:MOTDEPASSE2009']).map;
+  assert.equal(seul.has('gmail.com'), false);
+  assert.equal(seul.get(NO_SITE).text, 'quelquun@gmail.com:MOTDEPASSE2009\n');
+  assert.equal(siteFromLine('quelquun@gmail.com:MOTDEPASSE2009'), null);
+  assert.equal(siteForPair(line, 'quelquun@gmail.com:MOTDEPASSE2009'), 'sso.crunchyroll.com');
 });
 
 test('mode first / all / custom côté site', () => {
