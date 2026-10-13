@@ -325,7 +325,7 @@ async function handleExtract(req, res, url) {
   return undefined;
 }
 
-/* ---------- groupement par site (onglet "trier par site") ---------- */
+/* ---------- groupement par site ---------- */
 
 const MAX_SITES_JSON = 50000;
 
