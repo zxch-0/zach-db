@@ -2,17 +2,11 @@
 
 Extraction ultra-rapide de morceaux `xxxx:xxxx` depuis de gros fichiers texte,
 et tri de ces lignes par site.
-Site volontairement nu : noir et blanc, aucune police externe, aucun effet,
-aucune image, aucun framework, aucune dépendance npm.
+Site sobre et moderne : noir et blanc, aucun emoji, aucune police externe,
+aucun framework, aucune dépendance npm. Une barre de progression suit
+l'avancement du traitement, ligne à ligne.
 
-**Onglet 1 — Extraire**
-
-```
-entrée :  [https://www.roblox.com/tr/CreateAccount:Thou_miriba:N2Z6PQXg4XLnTSi](...)1111
-sortie :  Thou_miriba:N2Z6PQXg4XLnTSi
-```
-
-**Onglet 2 — Trier par site**
+**Vue unique — Trier par site**
 
 ```
 entrée :  https://www.roblox.com/x:Thou_miriba:N2Z6PQXg4XLnTSi
@@ -28,23 +22,22 @@ clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
 
 ## Comment ça marche
 
-1. Le fichier est découpé en flux dans un **Web Worker** : l'onglet reste fluide,
-   rien ne transite par le réseau.
-2. Une passe **comptage** mesure la taille de la sortie sans la stocker.
-3. Une passe **collecte** écrit le résultat et le télécharge.
-   Si la sortie dépasse 32 Mo, elle est produite en plusieurs fichiers
-   (`-part001.txt`, `-part002.txt`, …) : la mémoire du navigateur reste bornée,
-   et le résultat reste **exact** (aucune ligne perdue).
+1. Le fichier est découpé en flux dans un **Web Worker** : la page reste
+   fluide, rien ne transite par le réseau. Une **barre de progression** affiche
+   les lignes traitées et le pourcentage avancé.
+2. Une passe d'**analyse** compte les sites et les valeurs sans stocker le
+   texte : la liste des sites s'affiche au fur et à mesure.
+3. Un clic sur un site déclenche une seconde passe ciblée, écrite au fil de
+   l'eau, affichée puis téléchargeable en `.txt`.
 
-L'onglet « Trier par site » utilise la même mécanique : une passe d'analyse (qui
-ne garde que des compteurs par site), puis une passe ciblée par site, écrite au
-fil de l'eau.
+Le moteur d'extraction partagé (navigateur, serveur, CLI) reste dans
+`public/lib/parse.js` ; le tri par site dans `public/lib/group.js`.
 
 Vitesse mesurée : **~230 Mo/s** sans dédoublonnage (~100 Mo/s avec), et
 **~70 Mo/s** pour le tri par site (200 sites sur 150 Mo). Le parseur travaille
 ligne par ligne, sans allocation inutile.
 
-## Trier par site (onglet 2)
+## Trier par site
 
 Trois temps, tous dans le navigateur :
 
@@ -66,9 +59,9 @@ Détail des sites :
 - une ligne sans URL va dans le groupe `(sans site)` ;
 - les lignes sans couple `xxxx:xxxx` sont simplement comptées comme « ignorées ».
 
-Les modes de l'onglet 1 s'appliquent à l'identique (dernier couple, premier,
-le plus long, tous, regex perso), plus le dédoublonnage **par site** et la
-case « garder les `domaine.tld:port` ».
+Les modes (dernier couple, premier, le plus long, tous, regex perso)
+s'appliquent à chaque ligne, plus le dédoublonnage **par site** et la case
+« garder les `domaine.tld:port` ».
 
 ## Les modes
 
@@ -87,7 +80,7 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
 ```bash
 npm start            # http://localhost:3000
-npm test             # 55 tests (moteurs, workers, serveur HTTP, interface)
+npm test             # 51 tests (moteurs, workers, serveur HTTP, interface)
 npm run bench        # mesure sur un fichier généré
 ```
 
@@ -190,8 +183,8 @@ CLI) : un seul code, donc un seul comportement.
 ```
 public/lib/parse.js   moteur d'extraction (partagé navigateur / serveur / CLI)
 public/lib/group.js   moteur de tri par site (mêmes briques, mêmes règles)
-public/index.html     page unique, deux onglets
-public/styles.css     noir et blanc, ~150 lignes
+public/index.html     page unique : tri par site, barre de progression
+public/styles.css     noir et blanc, sobre et moderne
 public/app.js         interface (analyse, listes, téléchargements)
 public/worker.js      Web Worker : lecture en flux du fichier
 server.js             serveur HTTP + API (aucune dépendance)

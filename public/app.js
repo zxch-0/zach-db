@@ -1,18 +1,14 @@
 /*
- * zach-db — interface.
+ * zach-db — interface « Trier par site ».
  *
- * Onglet 1 « Extraire » : sort les couples xxxx:xxxx d'un fichier.
- * Onglet 2 « Trier par site » : range les lignes par site (roblox.com,
- *   netflix.com, …) puis affiche les valeurs d'un site au clic.
+ * Une seule vue : le fichier est analysé dans un Web Worker (compteurs par
+ * site, liste affichée en direct), puis un clic sur un site relit le fichier
+ * pour n'en extraire que les valeurs. Une barre de progression suit
+ * l'avancement de la lecture du .txt, ligne à ligne.
  *
- * Dans les deux cas : lecture en flux dans un Web Worker, passages successifs
- * (compter puis collecter) pour garder une mémoire bornée, rien n'est envoyé.
- *
- * Cas particulier : si l'URL contient ?dir=/dossier, le serveur lit les
- * fichiers (flux HTTP) au lieu du disque du navigateur.
+ * Rien ne transite par le réseau. Cas particulier : si l'URL contient
+ * ?dir=/dossier, le serveur lit les fichiers (flux HTTP) à la place.
  */
-const SMALL = 16 * 1024 * 1024; // en dessous : une seule passe
-const PART = 32 * 1024 * 1024; // taille visée pour chaque fichier de sortie
 const MEMORY_CAP = 64 * 1024 * 1024; // garde-fou mémoire
 const PREVIEW_CHARS = 48 * 1024;
 const LIST_LIMIT = 1000; // lignes de sites affichées d'un coup
@@ -27,31 +23,12 @@ let worker = null;
 let passId = 0;
 let abortController = null;
 
-/* ================= onglets ================= */
-
-const TABS = [
-  { name: 'extract', tab: el('tab-extract'), panel: el('panel-extract') },
-  { name: 'sites', tab: el('tab-sites'), panel: el('panel-sites') },
-];
-
-function showTab(name, updateHash = true) {
-  for (const item of TABS) {
-    const active = item.name === name;
-    item.tab.setAttribute('aria-selected', String(active));
-    item.panel.hidden = !active;
-  }
-  if (updateHash) history.replaceState(null, '', name === 'sites' ? '#sites' : location.pathname + location.search);
-}
-
-for (const item of TABS) item.tab.addEventListener('click', () => showTab(item.name));
-
 /* ================= Web Worker ================= */
 
 function ensureWorker() {
   if (worker) return worker;
   worker = new Worker('/worker.js', { type: 'module' });
   worker.onerror = (event) => {
-    el('status').textContent = 'erreur worker : ' + (event.message || 'inconnue');
     el('gstatus').textContent = 'erreur worker : ' + (event.message || 'inconnue');
   };
   return worker;
@@ -91,7 +68,7 @@ function cancelWorker() {
   if (abortController) abortController.abort();
 }
 
-/* ================= outils communs ================= */
+/* ================= outils ================= */
 
 function trimPreview(chunks, limit = PREVIEW_CHARS) {
   let text = '';
@@ -100,13 +77,6 @@ function trimPreview(chunks, limit = PREVIEW_CHARS) {
     if (text.length >= limit) return text.slice(0, limit) + '\n[...]';
   }
   return text;
-}
-
-function stamp() {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, '0');
-  return now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' +
-    pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
 }
 
 function download(blob, filename) {
@@ -131,7 +101,7 @@ function countLines(text) {
   return count;
 }
 
-function readMode(form, name, regexInput, label) {
+function readMode(form, name, regexInput) {
   const mode = form.querySelector('input[name="' + name + '"]:checked').value;
   const regex = regexInput.value.trim();
   if (mode === 'custom') {
@@ -148,84 +118,6 @@ function cleanName(name) {
   return (name || 'zach-db').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_') || 'zach-db';
 }
 
-/* ==================================================================
- * Onglet 1 — Extraire
- * ================================================================== */
-
-const form = el('form');
-const fileInput = el('file');
-const filesInput = el('files');
-const regexInput = el('regex');
-const dedupeInput = el('dedupe');
-const hostsInput = el('hosts');
-const runButton = el('run');
-const cancelButton = el('cancel');
-const downloadButton = el('download');
-const statusEl = el('status');
-const previewBox = el('previewBox');
-const preview = el('preview');
-const metaEl = el('meta');
-
-let busy = false;
-let current = null; // { opts, base, multipart, stats, names }
-
-function extractOptions() {
-  const { mode, regex } = readMode(form, 'mode', regexInput);
-  return { mode, regex, dedupe: dedupeInput.checked, hosts: hostsInput.checked };
-}
-
-function setBusy(value) {
-  busy = value;
-  runButton.disabled = value;
-  cancelButton.disabled = !value;
-  fileInput.disabled = value;
-  filesInput.disabled = value;
-  if (value) downloadButton.disabled = true;
-}
-
-/** Extraction locale : une passe si c'est petit, sinon comptage puis tranches. */
-async function extractPass({ source, opts, count = false, skip = 0, limit = Infinity, label = 'lecture' }) {
-  const chunks = [];
-  const started = Date.now();
-  let keptChars = 0;
-  let tooBig = false;
-
-  try {
-    const stats = await runWorker({ type: 'pass', source, options: opts, pass: { count, skip, limit } }, {
-      onChunk(chunk) {
-        if (tooBig) return;
-        keptChars += chunk.length;
-        if (keptChars * 2 > MEMORY_CAP) {
-          tooBig = true;
-          worker.postMessage({ type: 'cancel' });
-          return;
-        }
-        chunks.push(chunk);
-        preview.textContent = trimPreview(chunks);
-      },
-      onProgress(data) {
-        statusEl.textContent = progressLine(label, data, source.size, started);
-      },
-    });
-    return { text: count ? null : chunks.join(''), tooBig: false, stats };
-  } catch (err) {
-    if (err.code === 'CANCELLED' && tooBig) return { text: null, tooBig: true, stats: null };
-    throw err;
-  }
-}
-
-function progressLine(label, data, total, started) {
-  const seconds = (Date.now() - started) / 1000;
-  const percent = total ? ' ' + Math.floor((data.loaded / total) * 100) + '%' : '';
-  const speed = seconds > 0.2 ? ' — ' + (data.lines / seconds / 1e6).toFixed(1) + ' M lignes/s' : '';
-  return label + '…' + percent + ' ' + n(data.loaded) + ' / ' + n(total) + ' octets — ' +
-    n(data.lines) + ' lignes — ' + n(data.matched) + ' couples' + speed;
-}
-
-function localFiles() {
-  return Array.from(fileInput.files || []);
-}
-
 function sourceFromFiles(files) {
   if (files.length === 1) return { source: files[0], base: cleanName(files[0].name) };
   const parts = [];
@@ -236,204 +128,69 @@ function sourceFromFiles(files) {
   return { source: new Blob(parts, { type: 'text/plain' }), base: 'zach-db' };
 }
 
-function partName(base, index, total) {
-  if (total <= 1) return base + '-' + stamp() + '.txt';
-  return base + '-part' + String(index + 1).padStart(3, '0') + '.txt';
+/* ================= barre de progression ================= */
+
+const progressEl = el('gprogress');
+const barEl = el('gbar');
+const pctEl = el('gpct');
+
+function progressReset() {
+  progressEl.hidden = false;
+  progressEl.classList.remove('indeterminate');
+  progressEl.setAttribute('aria-valuenow', '0');
+  barEl.style.width = '0%';
+  pctEl.textContent = '0 lignes · 0 %';
 }
 
-async function runLocal(source, base, opts) {
-  current = { opts, base, multipart: 1, stats: null, names: [] };
-  previewBox.hidden = false;
-
-  if (source.size <= SMALL) {
-    const result = await extractPass({ source, opts, label: 'extraction' });
-    if (!result.tooBig) {
-      const name = partName(base, 0, 1);
-      download(textBlob(result.text), name);
-      finish(result.stats, [name]);
-      return;
-    }
-  }
-  return runLocalMultiPass(source, base, opts);
+/** Avancement réel : lignes traitées et octets lus dans le .txt. */
+function progressTo(loaded, total, lines) {
+  const ratio = total > 0 ? Math.min(1, loaded / total) : 0;
+  const pct = Math.round(ratio * 100);
+  progressEl.classList.remove('indeterminate');
+  progressEl.setAttribute('aria-valuenow', String(pct));
+  barEl.style.width = pct + '%';
+  pctEl.textContent = (lines === undefined ? '' : n(lines) + ' lignes · ') + pct + ' %';
 }
 
-async function runLocalMultiPass(source, base, opts) {
-  statusEl.textContent = 'comptage…';
-  const counted = await extractPass({ source, opts, count: true, label: 'comptage' });
-  const stats = counted.stats;
-  current.stats = stats;
-
-  if (stats.matched === 0) {
-    finish(stats, []);
-    return;
-  }
-
-  const parts = Math.max(1, Math.ceil(stats.outChars / PART));
-  current.multipart = parts;
-  const names = [];
-  let skip = 0;
-
-  for (let index = 0; index < parts; index++) {
-    const result = await extractPass({
-      source,
-      opts,
-      skip,
-      limit: PART,
-      label: 'extraction partie ' + (index + 1) + '/' + parts,
-    });
-    if (!result.text) break;
-    const name = partName(base, index, parts);
-    download(textBlob(result.text), name);
-    names.push(name);
-    skip += result.stats.emittedBytes;
-  }
-
-  finish(stats, names);
+/** Total inconnu (flux serveur) : animation le temps de la lecture. */
+function progressLive() {
+  progressEl.hidden = false;
+  progressEl.classList.add('indeterminate');
+  barEl.style.width = '';
+  pctEl.textContent = '…';
 }
 
-/** Extraction depuis des fichiers du serveur (?dir=…). */
-async function runRemote(paths, opts) {
-  current = { opts, base: 'zach-db', multipart: 1, stats: null, names: [] };
-  previewBox.hidden = false;
-  preview.textContent = '';
-  statusEl.textContent = 'lecture serveur…';
-
-  abortController = new AbortController();
-  const started = Date.now();
-  const query = '/api/extract?mode=' + encodeURIComponent(opts.mode) +
-    '&regex=' + encodeURIComponent(opts.regex) + '&dedupe=' + (opts.dedupe ? 1 : 0) +
-    '&hosts=' + (opts.hosts ? 1 : 0) +
-    (dirParam ? '&dir=' + encodeURIComponent(dirParam) + '&paths=1' : '');
-  const response = await fetch(query, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain;charset=utf-8' },
-    body: paths.join('\n'),
-    signal: abortController.signal,
-  });
-  if (!response.ok || !response.body) {
-    throw new Error('serveur : ' + response.status + ' ' + (await response.text()).slice(0, 300));
-  }
-
-  const reader = response.body.getReader();
-  const chunks = [];
-  let chars = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const text = new TextDecoder().decode(value, { stream: true });
-    chars += text.length;
-    if (chars * 2 > MEMORY_CAP) {
-      await reader.cancel();
-      throw new Error('sortie trop volumineuse pour le navigateur — utilisez l’API curl (voir plus bas).');
-    }
-    chunks.push(text);
-    statusEl.textContent = 'lecture serveur… ' + mb(chars) + ' reçus en ' +
-      ((Date.now() - started) / 1000).toFixed(1) + ' s';
-    preview.textContent = trimPreview(chunks);
-  }
-
-  const text = chunks.join('');
-  const name = 'zach-db-' + stamp() + '.txt';
-  download(textBlob(text), name);
-  finish({
-    bytes: 0, lines: 0, matched: countLines(text), outLines: countLines(text),
-    outChars: text.length, ms: Date.now() - started,
-  }, [name], true);
+function progressDone(lines) {
+  progressEl.classList.remove('indeterminate');
+  progressEl.setAttribute('aria-valuenow', '100');
+  barEl.style.width = '100%';
+  pctEl.textContent = (lines === undefined ? '' : n(lines) + ' lignes · ') + '100 %';
 }
 
-function finish(stats, names, remote = false) {
-  const seconds = Math.max(stats.ms, 1) / 1000;
-  const lines = ['terminé.'];
-  if (remote) {
-    lines.push('source : serveur (le serveur lit les fichiers, le navigateur écrit le .txt)');
-  } else {
-    lines.push('lu : ' + n(stats.bytes) + ' octets (' + mb(stats.bytes) + ') en ' + seconds.toFixed(2) +
-      ' s (' + mb(stats.bytes / seconds) + '/s)');
-  }
-  if (stats.lines) lines.push('lignes : ' + n(stats.lines) + ' — couples trouvés : ' + n(stats.matched));
-  lines.push('sortie : ' + n(stats.outLines) + ' lignes (' + mb(stats.outChars) + ')');
-  if (names.length === 1) lines.push('fichier téléchargé : ' + names[0]);
-  else if (names.length > 1) lines.push(names.length + ' fichiers téléchargés : ' + names.join(', '));
-  if (stats.matched === 0) lines.push('aucun couple trouvé — essayez un autre mode ou une regex perso.');
-  statusEl.textContent = lines.join('\n');
-
-  downloadButton.disabled = stats.matched === 0;
-  downloadButton.textContent = current && current.multipart > 1
-    ? 'Relancer l’export (' + current.multipart + ' fichiers)'
-    : 'Télécharger .txt';
-  setBusy(false);
+function progressHide() {
+  progressEl.hidden = true;
 }
 
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (busy) return;
+/* ================= statistiques ================= */
 
-  let opts;
-  try {
-    opts = extractOptions();
-  } catch (err) {
-    statusEl.textContent = err.message;
-    return;
-  }
+const statSites = el('statSites');
+const statValues = el('statValues');
+const statLines = el('statLines');
+const statBytes = el('statBytes');
 
-  const files = localFiles();
-  const listed = filesInput.value.split('\n').map((line) => line.trim()).filter(Boolean);
-  preview.textContent = '';
-  downloadButton.textContent = 'Télécharger .txt';
-  setBusy(true);
+function setStats({ sites, values, lines, bytes }) {
+  if (sites !== undefined) statSites.textContent = sites;
+  if (values !== undefined) statValues.textContent = values;
+  if (lines !== undefined) statLines.textContent = lines;
+  if (bytes !== undefined) statBytes.textContent = bytes;
+}
 
-  try {
-    if (files.length === 0) {
-      if (listed.length === 0) throw new Error('choisissez un fichier .txt (ou une liste avec ?dir=…).');
-      if (!dirParam) {
-        throw new Error('lecture de chemins locaux impossible depuis le navigateur : utilisez ?dir=/dossier, l’API curl ou la CLI.');
-      }
-      await runRemote(listed, opts);
-      return;
-    }
-    const { source, base } = sourceFromFiles(files);
-    await runLocal(source, base, opts);
-  } catch (err) {
-    if (err.code === 'CANCELLED' || err.name === 'AbortError') statusEl.textContent = 'annulé.';
-    else statusEl.textContent = 'erreur : ' + err.message;
-    setBusy(false);
-  }
-});
-
-cancelButton.addEventListener('click', () => {
-  cancelWorker();
-  statusEl.textContent = 'annulation…';
-});
-
-downloadButton.addEventListener('click', async () => {
-  if (!current || busy) return;
-  const files = localFiles();
-  if (files.length === 0) return;
-  setBusy(true);
-  try {
-    const { source, base } = sourceFromFiles(files);
-    await runLocal(source, base, current.opts);
-  } catch (err) {
-    if (err.code !== 'CANCELLED') statusEl.textContent = 'erreur : ' + err.message;
-    setBusy(false);
-  }
-});
-
-fileInput.addEventListener('change', () => {
-  const list = fileInput.files || [];
-  if (list.length) {
-    let size = 0;
-    for (const file of list) size += file.size;
-    metaEl.textContent = n(list.length) + ' fichier(s) · ' + mb(size);
-  }
-});
-
-regexInput.addEventListener('input', () => {
-  if (regexInput.value.trim()) form.querySelector('input[name="mode"][value="custom"]').checked = true;
-});
+function resetStats() {
+  setStats({ sites: '0', values: '0', lines: '0', bytes: '0.0 Mo' });
+}
 
 /* ==================================================================
- * Onglet 2 — Trier par site
+ * Trier par site
  * ================================================================== */
 
 const groupForm = el('groupForm');
@@ -455,6 +212,7 @@ const gsaveButton = el('gsave');
 const gprevButton = el('gprev');
 const gtextEl = el('gtext');
 const gwarnEl = el('gwarn');
+const metaEl = el('meta');
 
 const GROUP_SITES = new Map(); // site → { site, count, bytes }
 let groupBusy = false;
@@ -502,7 +260,7 @@ function renderSites() {
     const info = document.createElement('span');
     info.className = 'count';
     info.textContent = n(entry.count) + (entry.count > 1 ? ' valeurs' : ' valeur') + ' · ' + mb(entry.bytes);
-    li.append(button, ' ', info);
+    li.append(button, info);
     fragment.append(li);
   }
   gsitesEl.replaceChildren(fragment);
@@ -534,6 +292,7 @@ async function openSite(site) {
   if (!groupJob || groupBusy) return;
   showSiteTitle(site);
   setGroupBusy(true);
+  progressReset();
   const chunks = [];
   let kept = 0;
   let full = false;
@@ -541,13 +300,16 @@ async function openSite(site) {
 
   try {
     if (groupJob.remote) {
+      progressLive();
       const text = await remoteSiteText(site);
       gtextEl.textContent = trimPreview([text]);
       groupJob.site = site;
       groupJob.siteText = text;
+      progressDone();
       gstatusEl.textContent = 'site ' + site + ' : ' + n(countLines(text)) + ' valeurs (' +
         mb(text.length) + ') en ' + ((Date.now() - started) / 1000).toFixed(2) + ' s';
     } else {
+      const total = groupJob.source.size;
       const stats = await runWorker({
         type: 'group',
         source: groupJob.source,
@@ -565,14 +327,17 @@ async function openSite(site) {
           gtextEl.textContent = trimPreview(chunks);
         },
         onProgress(data) {
-          gstatusEl.textContent = 'site ' + site + '… ' + n(data.loaded) + ' / ' + n(groupJob.source.size) +
-            ' octets — ' + n(data.kept) + ' valeurs';
+          progressTo(data.loaded, total, data.lines);
+          const percent = total ? Math.floor((data.loaded / total) * 100) : 0;
+          gstatusEl.textContent = 'site ' + site + '… ' + percent + ' % — ' + n(data.loaded) + ' / ' +
+            n(total) + ' octets — ' + n(data.lines) + ' lignes — ' + n(data.kept) + ' valeurs';
         },
       });
 
       groupJob.site = site;
       groupJob.siteText = chunks.join('');
       gtextEl.textContent = trimPreview(chunks);
+      progressDone(stats.lines);
       gstatusEl.textContent = 'site ' + site + ' : ' + n(stats.outLines) + ' valeurs (' +
         mb(stats.outChars) + ') en ' + (stats.ms / 1000).toFixed(2) + ' s';
       if (full || stats.truncated) {
@@ -583,9 +348,10 @@ async function openSite(site) {
     }
     gsaveButton.disabled = !groupJob.siteText;
   } catch (err) {
-    if (err.code === 'CANCELLED') gstatusEl.textContent = 'annulé.';
+    if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'annulé.';
     else gstatusEl.textContent = 'erreur : ' + err.message;
     gtextEl.textContent = '';
+    progressHide();
   } finally {
     gsaveButton.textContent = 'Télécharger ' + site + '.txt';
     setGroupBusy(false);
@@ -621,7 +387,7 @@ async function remoteSiteText(site) {
     if (chars * 2 > MEMORY_CAP) {
       await reader.cancel();
       gwarnEl.hidden = false;
-      gwarnEl.textContent = 'sortie trop grosse pour le navigateur : le .txt contiendra le début seulement. ' +
+      gwarnEl.textContent = 'sortie trop grosse pour la mémoire du navigateur : le .txt contiendra le début seulement. ' +
         'Utilisez l’API en direct : curl … ?site=' + site + ' -o ' + site + '.txt';
       break;
     }
@@ -645,7 +411,9 @@ async function groupScan() {
   gsaveButton.disabled = true;
   replaceSites([]);
   renderSites();
+  resetStats();
   setGroupBusy(true);
+  progressReset();
 
   try {
     if (files.length === 0) {
@@ -668,25 +436,41 @@ async function groupScan() {
       onSites(data) {
         replaceSites(data.sites);
         renderSites();
+        statSites.textContent = n(data.total);
         gstatusEl.textContent = 'analyse… ' + n(GROUP_SITES.size) + ' sites sur ' + n(data.total) +
           (data.live ? ' (liste en cours)' : '');
       },
       onProgress(data) {
+        progressTo(data.loaded, source.size, data.lines);
+        setStats({
+          sites: n(data.sites),
+          values: n(data.kept),
+          lines: n(data.lines),
+          bytes: mb(data.loaded),
+        });
         gstatusEl.textContent = 'analyse… ' + n(data.loaded) + ' / ' + n(source.size) + ' octets — ' +
           n(data.lines) + ' lignes — ' + n(data.sites) + ' sites';
       },
     });
 
     groupJob.stats = stats;
+    progressDone(stats.lines);
+    setStats({
+      sites: n(stats.sites),
+      values: n(stats.kept),
+      lines: n(stats.lines),
+      bytes: mb(stats.bytes),
+    });
     gstatusEl.textContent = [
       'terminé.',
       'lu : ' + n(stats.bytes) + ' octets (' + mb(stats.bytes) + ') en ' + (stats.ms / 1000).toFixed(2) + ' s',
       'lignes : ' + n(stats.lines) + ' — avec couple : ' + n(stats.matched) + ' — ignorées : ' + n(stats.skipped),
-      'sites : ' + n(stats.sites) + ' — valeurs : ' + n(stats.kept) + ' (' + mb(stats.bytes) + ')',
+      'sites : ' + n(stats.sites) + ' — valeurs : ' + n(stats.kept),
       'cliquez sur un site pour voir ses valeurs.',
     ].join('\n');
     renderSites();
   } catch (err) {
+    progressHide();
     if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'annulé.';
     else gstatusEl.textContent = 'erreur : ' + err.message;
   } finally {
@@ -697,6 +481,7 @@ async function groupScan() {
 async function groupRemoteScan(paths, opts) {
   groupJob = { opts, remote: true, paths, base: 'zach-db', stats: null };
   gstatusEl.textContent = 'analyse serveur…';
+  progressLive();
   abortController = new AbortController();
   const query = '/api/group?format=json' +
     '&mode=' + encodeURIComponent(opts.mode) +
@@ -715,6 +500,13 @@ async function groupRemoteScan(paths, opts) {
   if (!response.ok) throw new Error(payload.error || ('serveur : ' + response.status));
   replaceSites(payload.sites);
   renderSites();
+  progressDone();
+  setStats({
+    sites: n(payload.total),
+    values: n(payload.stats.kept),
+    lines: n(payload.stats.lines),
+    bytes: '—',
+  });
   gstatusEl.textContent = [
     'terminé (côté serveur).',
     'sites : ' + n(payload.total) + ' — valeurs : ' + n(payload.stats.kept),
@@ -763,9 +555,7 @@ gregexInput.addEventListener('input', () => {
 
 metaEl.textContent = dirParam ? 'traitement serveur · ?dir=' + dirParam : 'traitement local · 0 envoi';
 if (dirParam) {
-  filesInput.placeholder = 'un nom de fichier par ligne, lu dans le dossier ' + dirParam;
-  gfilesInput.placeholder = filesInput.placeholder;
+  gfilesInput.placeholder = 'un nom de fichier par ligne, lu dans le dossier ' + dirParam;
 }
-if (location.hash === '#sites') showTab('sites', false);
 renderSites();
 ensureWorker();

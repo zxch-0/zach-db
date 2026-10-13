@@ -99,16 +99,13 @@ test('app.js se charge sans erreur et branche ses écouteurs', async () => {
 
   // un écouteur est bien posé sur les éléments interactifs attendus
   for (const [id, type] of [
-    ['form', 'submit'],
     ['groupForm', 'submit'],
-    ['tab-extract', 'click'],
-    ['tab-sites', 'click'],
+    ['gfile', 'change'],
+    ['gregex', 'input'],
     ['gfilter', 'input'],
     ['gsave', 'click'],
     ['gprev', 'click'],
     ['gcancel', 'click'],
-    ['cancel', 'click'],
-    ['download', 'click'],
   ]) {
     const node = nodes.get(id);
     assert.ok(node.listeners.has(type), id + ' : pas d’écouteur ' + type);
@@ -124,17 +121,26 @@ test('app.js et index.html sont cohérents', () => {
   for (const id of new Set([...app.matchAll(/el\('([^']+)'\)/g)].map((match) => match[1]))) {
     assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
   }
-  // les deux onglets sont présents, avec leur panneau
-  for (const name of ['extract', 'sites']) {
-    assert.ok(html.includes('id="tab-' + name + '"'), 'onglet ' + name);
-    assert.ok(html.includes('id="panel-' + name + '"'), 'panneau ' + name);
+
+  // une seule vue : l'ancien onglet « Extraire » a bien disparu
+  assert.ok(!html.includes('id="panel-extract"'), 'panneau Extraire retiré');
+  assert.ok(!html.includes('id="tab-extract"'), 'onglet Extraire retiré');
+  assert.ok(!html.includes('>Extraire<'), 'bouton Extraire retiré');
+  assert.ok(html.includes('id="groupForm"'), 'formulaire « Trier par site » présent');
+
+  // la barre de progression est en place et pilotée par app.js
+  for (const id of ['gprogress', 'gbar', 'gpct']) {
+    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
   }
+  assert.match(app, /progressTo\(/, 'la barre avance avec les messages de progression');
+  assert.match(app, /progressDone\(/, 'la barre se termine à 100 %');
+
   // la liste des sites est bien un <ul>
   assert.match(html, /<ul id="gsites"/);
-  // les modes du second onglet sont les mêmes que ceux du premier
-  const extractModes = [...html.matchAll(/name="mode" value="([a-z]+)"/g)].map((m) => m[1]);
+  // les modes proposés correspondent au moteur
   const groupModes = [...html.matchAll(/name="gmode" value="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(groupModes, extractModes);
+  assert.deepEqual(groupModes, ['last', 'first', 'longest', 'all', 'custom']);
+  assert.ok(!/name="mode"/.test(html), 'plus de modes pour l’extraction seule');
   // aucune ressource externe : le site reste autonome et rapide
   for (const match of html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)) {
     assert.fail('ressource externe chargée par la page : ' + match[1]);

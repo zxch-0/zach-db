@@ -57,7 +57,7 @@ test('le site et ses ressources sont servis', async () => {
 
   // les modes proposés dans la page correspondent au moteur
   const { MODES } = await import('../public/lib/parse.js');
-  const values = [...html.matchAll(/name="mode" value="([a-z]+)"/g)].map((match) => match[1]);
+  const values = [...html.matchAll(/name="gmode" value="([a-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual(values, MODES);
 });
 

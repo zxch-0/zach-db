@@ -63,7 +63,7 @@ test('mode first / all / custom côté site', () => {
   assert.equal(first.get('roblox.com').text.split('\n')[0], 'CreateAccount:Thou_miriba');
 
   const all = group(['https://a.com/x:u1:p1 site2.net/y:u2:p2'], { mode: 'all' }).map;
-  // mêmes couples que l'onglet "Extraire" (segments séparés par ':')
+  // mêmes couples que l'extraction seule (segments séparés par ':')
   assert.equal(all.get('a.com').text, 'x:u1\nu1:p1\ny:u2\nu2:p2\n');
 
   const custom = group(['https://a.com/x::1234::'], { mode: 'custom', regex: '::(\\d+)::' }).map;
@@ -102,7 +102,7 @@ test('un seul site demandé (onlySite) : compteurs et texte', () => {
   assert.equal(grouper.site(NO_SITE), null, 'les lignes sans site sont exclues d’une passe ciblée');
 });
 
-test('le texte d’un site est exactement celui de l’onglet Extraire, mode par mode', () => {
+test('le texte d’un site est exactement celui de l’extraction, mode par mode', () => {
   for (const mode of ['last', 'first', 'longest', 'all']) {
     const expected = new Map();
     for (const line of SAMPLE) {

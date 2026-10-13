@@ -3,139 +3,123 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>zach-db</title>
+<title>zach-db — tri par site</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16'/><text x='8' y='12' font-size='11' text-anchor='middle' fill='%23fff' font-family='monospace'>z</text></svg>">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 
 <header>
-  <h1>zach-db</h1>
-  <p>Extraction <code>xxxx:xxxx</code> depuis de gros fichiers texte. Tout est traité
-  dans votre navigateur&nbsp;: le fichier n'est jamais envoyé.</p>
-  <nav class="tabs" role="tablist">
-    <button type="button" id="tab-extract" class="tab" role="tab" aria-selected="true">Extraire</button>
-    <button type="button" id="tab-sites" class="tab" role="tab" aria-selected="false">Trier par site</button>
-  </nav>
+  <div class="brand">
+    <span class="mark" aria-hidden="true">z</span>
+    <div class="brand-text">
+      <h1>zach-db</h1>
+      <p class="tagline">Tri par site de gros fichiers <code>.txt</code>, avec extraction des couples <code>xxxx:xxxx</code>.</p>
+    </div>
+  </div>
+  <p class="local-note">Traitement local — le fichier n’est jamais envoyé</p>
 </header>
 
 <main>
 
-<!-- ================= onglet 1 : extraire ================= -->
-<section id="panel-extract" role="tabpanel">
-  <form id="form">
-    <input type="file" id="file" name="file" accept=".txt,text/plain" multiple>
-    <textarea id="files" name="files" rows="3" spellcheck="false"
-      placeholder="ou collez des chemins / une liste, un par ligne (dossier serveur avec ?dir=...)"></textarea>
+<form id="groupForm">
 
-    <fieldset>
-      <legend>ce qu'on garde sur chaque ligne</legend>
-      <label><input type="radio" name="mode" value="last" checked> dernier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="mode" value="first"> premier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="mode" value="longest"> le plus long (pass le plus long)</label>
-      <label><input type="radio" name="mode" value="all"> tous</label>
-      <label><input type="radio" name="mode" value="custom"> regex perso</label>
-      <input type="text" id="regex" name="regex" spellcheck="false"
-        placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
-    </fieldset>
+  <!-- ============ 01 — source ============ -->
+  <section class="panel">
+    <h2 class="panel-title"><span class="num">01</span> source</h2>
 
-    <label class="check"><input type="checkbox" id="dedupe" name="dedupe"> supprimer les doublons</label>
-    <label class="check"><input type="checkbox" id="hosts" name="hosts"> garder les <code>domaine.tld:port</code> des URL (ignorés par défaut)</label>
-
-    <div class="buttons">
-      <button type="submit" id="run">Extraire</button>
-      <button type="button" id="cancel" disabled>Annuler</button>
-      <button type="button" id="download" disabled>Télécharger .txt</button>
-    </div>
-  </form>
-
-  <p id="status" role="status">prêt.</p>
-
-  <section id="previewBox" hidden>
-    <h2>aperçu</h2>
-    <pre id="preview"></pre>
-  </section>
-
-  <details id="curlBox">
-    <summary>API serveur (curl / gros fichiers hébergés sur le serveur)</summary>
-<pre>curl -X POST --data-binary @fichier.txt \
-  'https://VOTRE-APP.onrender.com/api/extract?mode=last&amp;dedupe=1' -o resultat.txt
-
-# dossier complet lu côté serveur (un nom de fichier par ligne)
-curl -X POST 'https://VOTRE-APP.onrender.com/api/extract?dir=/data&amp;mode=last' -o resultat.txt</pre>
-  </details>
-
-  <details>
-    <summary>CLI (fichiers énormes, zéro limite de mémoire)</summary>
-<pre>node cli.js gros.txt -o resultat.txt --mode=last --dedupe</pre>
-  </details>
-</section>
-
-<!-- ================= onglet 2 : trier par site ================= -->
-<section id="panel-sites" role="tabpanel" hidden>
-  <form id="groupForm">
     <input type="file" id="gfile" accept=".txt,text/plain" multiple>
     <textarea id="gfiles" rows="3" spellcheck="false"
       placeholder="ou collez une liste de fichiers, un par ligne (dossier serveur avec ?dir=...)"></textarea>
+  </section>
 
-    <fieldset>
-      <legend>ce qu'on garde sur chaque ligne</legend>
-      <label><input type="radio" name="gmode" value="last" checked> dernier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="gmode" value="first"> premier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="gmode" value="longest"> le plus long (pass le plus long)</label>
-      <label><input type="radio" name="gmode" value="all"> tous</label>
-      <label><input type="radio" name="gmode" value="custom"> regex perso</label>
-      <input type="text" id="gregex" spellcheck="false" placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
-    </fieldset>
+  <!-- ============ 02 — extraction ============ -->
+  <section class="panel">
+    <h2 class="panel-title"><span class="num">02</span> extraction</h2>
 
-    <label class="check"><input type="checkbox" id="gsub" checked> regrouper les sous-domaines
-      (<code>www.roblox.com</code> et <code>account.roblox.com</code> → <code>roblox.com</code>)</label>
-    <label class="check"><input type="checkbox" id="gdedupe"> supprimer les doublons dans chaque site</label>
-    <label class="check"><input type="checkbox" id="ghosts"> garder les <code>domaine.tld:port</code> des URL (ignorés par défaut)</label>
+    <div class="grid-2">
+      <fieldset>
+        <legend>ce qu’on garde sur chaque ligne</legend>
+        <label><input type="radio" name="gmode" value="last" checked> dernier <code>a:b</code> de la ligne</label>
+        <label><input type="radio" name="gmode" value="first"> premier <code>a:b</code> de la ligne</label>
+        <label><input type="radio" name="gmode" value="longest"> le plus long (pass le plus long)</label>
+        <label><input type="radio" name="gmode" value="all"> tous</label>
+        <label><input type="radio" name="gmode" value="custom"> regex perso</label>
+        <input type="text" id="gregex" spellcheck="false"
+          placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
+      </fieldset>
+
+      <div class="options-side">
+        <p class="side-title">regroupement</p>
+        <label class="check"><input type="checkbox" id="gsub" checked> regrouper les sous-domaines
+          (<code>www.roblox.com</code> et <code>account.roblox.com</code> → <code>roblox.com</code>)</label>
+        <label class="check"><input type="checkbox" id="gdedupe"> supprimer les doublons dans chaque site</label>
+        <label class="check"><input type="checkbox" id="ghosts"> garder les <code>domaine.tld:port</code> des URL (ignorés par défaut)</label>
+      </div>
+    </div>
 
     <div class="buttons">
-      <button type="submit" id="gscan">Trier</button>
+      <button type="submit" id="gscan">Trier par site</button>
       <button type="button" id="gcancel" disabled>Annuler</button>
     </div>
-  </form>
 
-  <p id="gstatus" role="status">prêt.</p>
+    <div class="progress" id="gprogress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+      aria-valuenow="0" aria-label="avancement du traitement" hidden>
+      <div class="progress-track"><div class="progress-fill" id="gbar"></div></div>
+      <span class="progress-pct" id="gpct">0 lignes · 0 %</span>
+    </div>
 
-  <div id="glistBox">
-    <h2>sites trouvés</h2>
-    <input type="search" id="gfilter" placeholder="filtrer (ex. roblox)" autocomplete="off">
-    <p id="gsummary">—</p>
-    <ul id="gsites" class="sites"></ul>
+    <p id="gstatus" role="status">prêt.</p>
+  </section>
+
+</form>
+
+<!-- ============ 03 — sites trouvés ============ -->
+<section class="panel" id="glistBox">
+  <h2 class="panel-title"><span class="num">03</span> sites trouvés</h2>
+
+  <div class="stats">
+    <div class="stat"><strong id="statSites">0</strong><span>sites</span></div>
+    <div class="stat"><strong id="statValues">0</strong><span>valeurs</span></div>
+    <div class="stat"><strong id="statLines">0</strong><span>lignes lues</span></div>
+    <div class="stat"><strong id="statBytes">0.0 Mo</strong><span>octets lus</span></div>
   </div>
 
-  <section id="gresult" hidden>
+  <input type="search" id="gfilter" placeholder="filtrer (ex. roblox)" autocomplete="off">
+  <p id="gsummary">—</p>
+  <ul id="gsites" class="sites"></ul>
+</section>
+
+<!-- ============ 04 — valeurs d’un site ============ -->
+<section id="gresult" hidden>
+  <div class="result-head">
     <h2 id="gtitre">site</h2>
     <div class="buttons">
       <button type="button" id="gsave" disabled>Télécharger .txt</button>
       <button type="button" id="gprev">Revenir à la liste</button>
     </div>
-    <pre id="gtext"></pre>
-    <p id="gwarn" class="note" hidden></p>
-  </section>
+  </div>
+  <pre id="gtext"></pre>
+  <p id="gwarn" class="note" hidden></p>
+</section>
 
-  <details>
-    <summary>API serveur (curl) — liste des sites ou un seul site</summary>
+<details>
+  <summary>API serveur (curl) — liste des sites ou un seul site</summary>
 <pre># la liste des sites, avec compteurs
-curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group' 
+curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group'
 curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group?format=tsv'
 
 # toutes les valeurs d'un site
 curl -X POST --data-binary @fichier.txt \
   'https://VOTRE-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt</pre>
-  </details>
+</details>
 
-  <details>
-    <summary>CLI : liste, un site, ou un fichier par site</summary>
+<details>
+  <summary>CLI : liste, un site, ou un fichier par site</summary>
 <pre>node cli.js gros.txt --group                       # site + compteurs
 node cli.js gros.txt --group --site=roblox.com -o roblox.txt
 node cli.js gros.txt --group --split=dossier/      # un .txt par site</pre>
-  </details>
-</section>
+</details>
 
 </main>
 
