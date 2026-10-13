@@ -3,145 +3,258 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>zach-db</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16'/><text x='8' y='12' font-size='11' text-anchor='middle' fill='%23fff' font-family='monospace'>z</text></svg>">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07080a">
+<meta name="description" content="Triez de gros fichiers .txt par site : chaque ligne est rangée par domaine et sa valeur user:pass extraite, directement dans le navigateur.">
+<title>zach-db — trier par site</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23f5f5f5'/><path d='M9 10h14L12 22h11' fill='none' stroke='%2307080a' stroke-width='3'/></svg>">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 
-<header>
-  <h1>zach-db</h1>
-  <p>Extraction <code>xxxx:xxxx</code> depuis de gros fichiers texte. Tout est traité
-  dans votre navigateur&nbsp;: le fichier n'est jamais envoyé.</p>
-  <nav class="tabs" role="tablist">
-    <button type="button" id="tab-extract" class="tab" role="tab" aria-selected="true">Extraire</button>
-    <button type="button" id="tab-sites" class="tab" role="tab" aria-selected="false">Trier par site</button>
+<div class="backdrop" aria-hidden="true"></div>
+<div class="topline" id="topline" aria-hidden="true"><span id="toplineFill"></span></div>
+
+<header class="topbar">
+  <a class="brand" href="#accueil">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">zach-db</span>
+  </a>
+
+  <nav class="nav" id="nav" aria-label="Sections">
+    <a href="#source" data-spy="source">Source</a>
+    <a href="#reglages" data-spy="reglages">Réglages</a>
+    <a href="#suivi" data-spy="suivi">Suivi</a>
+    <a href="#resultats" data-spy="resultats">Résultats</a>
+    <a href="#outils" data-spy="outils">API &amp; CLI</a>
   </nav>
+
+  <p class="pill" id="meta">local · aucun envoi</p>
 </header>
 
 <main>
 
-<!-- ================= onglet 1 : extraire ================= -->
-<section id="panel-extract" role="tabpanel">
-  <form id="form">
-    <input type="file" id="file" name="file" accept=".txt,text/plain" multiple>
-    <textarea id="files" name="files" rows="3" spellcheck="false"
-      placeholder="ou collez des chemins / une liste, un par ligne (dossier serveur avec ?dir=...)"></textarea>
-
-    <fieldset>
-      <legend>ce qu'on garde sur chaque ligne</legend>
-      <label><input type="radio" name="mode" value="last" checked> dernier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="mode" value="first"> premier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="mode" value="longest"> le plus long (pass le plus long)</label>
-      <label><input type="radio" name="mode" value="all"> tous</label>
-      <label><input type="radio" name="mode" value="custom"> regex perso</label>
-      <input type="text" id="regex" name="regex" spellcheck="false"
-        placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
-    </fieldset>
-
-    <label class="check"><input type="checkbox" id="dedupe" name="dedupe"> supprimer les doublons</label>
-    <label class="check"><input type="checkbox" id="hosts" name="hosts"> garder les <code>domaine.tld:port</code> des URL (ignorés par défaut)</label>
-
-    <div class="buttons">
-      <button type="submit" id="run">Extraire</button>
-      <button type="button" id="cancel" disabled>Annuler</button>
-      <button type="button" id="download" disabled>Télécharger .txt</button>
-    </div>
-  </form>
-
-  <p id="status" role="status">prêt.</p>
-
-  <section id="previewBox" hidden>
-    <h2>aperçu</h2>
-    <pre id="preview"></pre>
-  </section>
-
-  <details id="curlBox">
-    <summary>API serveur (curl / gros fichiers hébergés sur le serveur)</summary>
-<pre>curl -X POST --data-binary @fichier.txt \
-  'https://VOTRE-APP.onrender.com/api/extract?mode=last&amp;dedupe=1' -o resultat.txt
-
-# dossier complet lu côté serveur (un nom de fichier par ligne)
-curl -X POST 'https://VOTRE-APP.onrender.com/api/extract?dir=/data&amp;mode=last' -o resultat.txt</pre>
-  </details>
-
-  <details>
-    <summary>CLI (fichiers énormes, zéro limite de mémoire)</summary>
-<pre>node cli.js gros.txt -o resultat.txt --mode=last --dedupe</pre>
-  </details>
+<!-- ============================ accueil ============================ -->
+<section class="hero" id="accueil">
+  <p class="eyebrow"><span class="pulse" aria-hidden="true"></span>tout se passe dans le navigateur</p>
+  <h1>Trier par site<span class="h1-alt">extraire les valeurs.</span></h1>
+  <p class="lede">
+    Chaque ligne d'un <code>.txt</code> est lue en flux, rangée par site
+    (<code>roblox.com</code>, <code>netflix.com</code>, …) et sa valeur
+    <code>user:pass</code> est extraite au passage. Un clic sur un site affiche
+    ses valeurs&nbsp;; un autre les télécharge.
+  </p>
+  <ul class="facts">
+    <li><b>~70 Mo/s</b><span>tri par site, mesuré</span></li>
+    <li><b>mémoire bornée</b><span>compteurs, pas de lignes</span></li>
+    <li><b>0 octet envoyé</b><span>Web Worker local</span></li>
+    <li><b>plusieurs Go</b><span>lecture en flux</span></li>
+  </ul>
 </section>
 
-<!-- ================= onglet 2 : trier par site ================= -->
-<section id="panel-sites" role="tabpanel" hidden>
-  <form id="groupForm">
-    <input type="file" id="gfile" accept=".txt,text/plain" multiple>
-    <textarea id="gfiles" rows="3" spellcheck="false"
-      placeholder="ou collez une liste de fichiers, un par ligne (dossier serveur avec ?dir=...)"></textarea>
+<form id="form" novalidate>
 
-    <fieldset>
-      <legend>ce qu'on garde sur chaque ligne</legend>
-      <label><input type="radio" name="gmode" value="last" checked> dernier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="gmode" value="first"> premier <code>a:b</code> de la ligne</label>
-      <label><input type="radio" name="gmode" value="longest"> le plus long (pass le plus long)</label>
-      <label><input type="radio" name="gmode" value="all"> tous</label>
-      <label><input type="radio" name="gmode" value="custom"> regex perso</label>
-      <input type="text" id="gregex" spellcheck="false" placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
-    </fieldset>
-
-    <label class="check"><input type="checkbox" id="gsub" checked> regrouper les sous-domaines
-      (<code>www.roblox.com</code> et <code>account.roblox.com</code> → <code>roblox.com</code>)</label>
-    <label class="check"><input type="checkbox" id="gdedupe"> supprimer les doublons dans chaque site</label>
-    <label class="check"><input type="checkbox" id="ghosts"> garder les <code>domaine.tld:port</code> des URL (ignorés par défaut)</label>
-
-    <div class="buttons">
-      <button type="submit" id="gscan">Trier</button>
-      <button type="button" id="gcancel" disabled>Annuler</button>
-    </div>
-  </form>
-
-  <p id="gstatus" role="status">prêt.</p>
-
-  <div id="glistBox">
-    <h2>sites trouvés</h2>
-    <input type="search" id="gfilter" placeholder="filtrer (ex. roblox)" autocomplete="off">
-    <p id="gsummary">—</p>
-    <ul id="gsites" class="sites"></ul>
+<!-- ============================ 01 — source ============================ -->
+<section class="card" id="source">
+  <div class="card-head">
+    <h2><span class="step">01</span> Source</h2>
+    <p class="card-note">Un ou plusieurs <code>.txt</code>, lus en flux&nbsp;: rien n'est copié en mémoire.</p>
   </div>
 
-  <section id="gresult" hidden>
-    <h2 id="gtitre">site</h2>
-    <div class="buttons">
-      <button type="button" id="gsave" disabled>Télécharger .txt</button>
-      <button type="button" id="gprev">Revenir à la liste</button>
-    </div>
-    <pre id="gtext"></pre>
-    <p id="gwarn" class="note" hidden></p>
-  </section>
+  <div class="drop" id="drop">
+    <input type="file" id="file" accept=".txt,text/plain" multiple
+      aria-label="Fichiers .txt à trier">
+    <span class="drop-glyph" aria-hidden="true"></span>
+    <span class="drop-title" id="dropTitle">Déposez vos fichiers .txt</span>
+    <span class="drop-sub" id="dropSub">ou cliquez pour parcourir — plusieurs fichiers acceptés</span>
+  </div>
 
-  <details>
-    <summary>API serveur (curl) — liste des sites ou un seul site</summary>
-<pre># la liste des sites, avec compteurs
-curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group' 
+  <div class="fold" id="pathsBox" hidden>
+    <label class="label" for="paths">Liste de fichiers côté serveur</label>
+    <textarea id="paths" rows="3" spellcheck="false"
+      placeholder="un nom de fichier par ligne, lu dans le dossier du serveur"></textarea>
+  </div>
+</section>
+
+<!-- ============================ 02 — réglages ============================ -->
+<section class="card" id="reglages">
+  <div class="card-head">
+    <h2><span class="step">02</span> Réglages</h2>
+    <p class="card-note">Ce qui est gardé sur chaque ligne, et comment les sites sont nommés.</p>
+  </div>
+
+  <fieldset class="modes">
+    <legend>valeur gardée</legend>
+    <div class="segmented">
+      <label><input type="radio" name="mode" value="last" checked><span>dernier <code>a:b</code></span></label>
+      <label><input type="radio" name="mode" value="first"><span>premier <code>a:b</code></span></label>
+      <label><input type="radio" name="mode" value="longest"><span>le plus long</span></label>
+      <label><input type="radio" name="mode" value="all"><span>tous</span></label>
+      <label><input type="radio" name="mode" value="custom"><span>regex perso</span></label>
+    </div>
+    <div class="field" id="regexBox" hidden>
+      <label class="label" for="regex">regex perso — 1<sup>er</sup> groupe capturant = valeur gardée</label>
+      <input type="text" id="regex" spellcheck="false"
+        placeholder="([a-z0-9._-]+):([a-z0-9._-]+)" autocomplete="off">
+    </div>
+  </fieldset>
+
+  <div class="toggles">
+    <label class="toggle">
+      <input type="checkbox" id="sub" checked>
+      <span class="box" aria-hidden="true"></span>
+      <span class="txt">regrouper les sous-domaines
+        <em><code>www.roblox.com</code> et <code>account.roblox.com</code> → <code>roblox.com</code></em>
+      </span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="dedupe">
+      <span class="box" aria-hidden="true"></span>
+      <span class="txt">supprimer les doublons<em>dans chaque site</em></span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="hosts">
+      <span class="box" aria-hidden="true"></span>
+      <span class="txt">garder les <code>domaine.tld:port</code><em>ignorés par défaut : c'est un port, pas un couple</em></span>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button type="submit" id="run" class="btn primary">Trier par site</button>
+    <button type="button" id="cancel" class="btn" disabled>Annuler</button>
+  </div>
+</section>
+
+</form>
+
+<!-- ============================ 03 — suivi ============================ -->
+<section class="card console" id="suivi">
+  <div class="card-head">
+    <h2><span class="step">03</span> Suivi</h2>
+    <p class="card-note" id="phase">en attente d'un fichier</p>
+  </div>
+
+  <div class="progress" id="progress">
+    <div class="bar" role="progressbar" id="bar" aria-valuemin="0" aria-valuemax="100"
+      aria-valuenow="0" aria-label="Avancement du traitement des lignes">
+      <span class="fill" id="fill"></span>
+    </div>
+    <p class="pct" id="pct">0&nbsp;%</p>
+  </div>
+  <p class="progress-meta" id="progressMeta">la barre suit les lignes lues du fichier.</p>
+
+  <dl class="tiles">
+    <div class="tile"><dt>octets lus</dt><dd id="statBytes">0</dd></div>
+    <div class="tile"><dt>lignes</dt><dd id="statLines">0</dd></div>
+    <div class="tile"><dt>sites</dt><dd id="statSites">0</dd></div>
+    <div class="tile"><dt>valeurs</dt><dd id="statValues">0</dd></div>
+    <div class="tile"><dt>débit</dt><dd id="statSpeed">—</dd></div>
+    <div class="tile"><dt>écoulé</dt><dd id="statTime">—</dd></div>
+  </dl>
+
+  <pre class="log" id="status" role="status">prêt.</pre>
+</section>
+
+<!-- ============================ 04 — résultats ============================ -->
+<section class="results" id="resultats">
+
+  <div class="card" id="sitesBox">
+    <div class="card-head">
+      <h2><span class="step">04</span> Sites trouvés</h2>
+      <p class="card-note" id="summary" aria-live="polite">aucune analyse pour le moment</p>
+    </div>
+
+    <div class="list-tools">
+      <input type="search" id="filter" placeholder="filtrer (ex. roblox)" autocomplete="off"
+        aria-label="Filtrer les sites" disabled>
+      <button type="button" id="exportList" class="btn small" disabled>Exporter la liste</button>
+    </div>
+
+    <ul id="sites" class="sites"></ul>
+    <p class="empty" id="empty">La liste apparaîtra ici, triée du plus gros au plus petit.</p>
+  </div>
+
+  <div class="card detail" id="result" hidden>
+    <div class="card-head">
+      <h2 class="site-title" id="resultTitle">site</h2>
+      <p class="card-note" id="resultMeta">—</p>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="save" class="btn primary" disabled>Télécharger .txt</button>
+      <button type="button" id="copy" class="btn" disabled>Copier</button>
+      <button type="button" id="back" class="btn ghost">Revenir à la liste</button>
+    </div>
+
+    <pre class="output" id="text"></pre>
+    <p class="note" id="warn" hidden></p>
+  </div>
+
+</section>
+
+<!-- ============================ outils ============================ -->
+<section class="tools" id="outils">
+  <details class="card fold-card">
+    <summary><span class="step">05</span> API serveur (curl)<span class="chevron" aria-hidden="true"></span></summary>
+    <div class="fold-body">
+<pre># la liste des sites, avec leurs compteurs
+curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group'
 curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group?format=tsv'
 
-# toutes les valeurs d'un site
+# toutes les valeurs d'un seul site, écrites au fil de l'eau
 curl -X POST --data-binary @fichier.txt \
-  'https://VOTRE-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt</pre>
+  'https://VOTRE-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt
+
+# extraction simple, sans tri par site
+curl -X POST --data-binary @fichier.txt \
+  'https://VOTRE-APP.onrender.com/api/extract?mode=last&amp;dedupe=1' -o resultat.txt</pre>
+      <p class="card-note">Paramètres : <code>mode</code>, <code>regex</code>, <code>dedupe=1</code>,
+        <code>hosts=1</code>, <code>subdomains=0</code>, <code>site</code>, <code>format</code>
+        (<code>json</code>, <code>tsv</code>, <code>txt</code>, <code>ndjson</code>), <code>dir</code>,
+        <code>paths=1</code>. La réponse est diffusée en flux : un fichier de plusieurs Go ne passe
+        jamais entièrement en mémoire.</p>
+    </div>
   </details>
 
-  <details>
-    <summary>CLI : liste, un site, ou un fichier par site</summary>
+  <details class="card fold-card">
+    <summary><span class="step">06</span> Ligne de commande<span class="chevron" aria-hidden="true"></span></summary>
+    <div class="fold-body">
 <pre>node cli.js gros.txt --group                       # site + compteurs
+node cli.js gros.txt --group --json                # la même en JSON
 node cli.js gros.txt --group --site=roblox.com -o roblox.txt
-node cli.js gros.txt --group --split=dossier/      # un .txt par site</pre>
+node cli.js gros.txt --group --split=dossier/      # un .txt par site
+
+node cli.js gros.txt -o resultat.txt --mode=last --dedupe
+zcat gros.txt.gz | node cli.js --mode=last &gt; resultat.txt</pre>
+      <p class="card-note">Mémoire constante, <code>.gz</code> accepté, <code>--keep-hosts</code> pour
+        garder <code>domaine.tld:port</code>, <code>--exact</code> pour ne pas regrouper les
+        sous-domaines.</p>
+    </div>
+  </details>
+
+  <details class="card fold-card">
+    <summary><span class="step">07</span> Comment un site est reconnu<span class="chevron" aria-hidden="true"></span></summary>
+    <div class="fold-body">
+      <ul class="rules">
+        <li>l'hôte est lu sur la ligne&nbsp;: <code>https://</code>, <code>http://</code>, <code>//</code>
+          ou directement <code>roblox.com/login</code>&nbsp;; ports, IP et <code>user:pass@hote</code>
+          sont gérés&nbsp;;</li>
+        <li><code>roblox.co.uk</code> reste distinct de <code>roblox.com</code>&nbsp;;</li>
+        <li>une ligne sans URL va dans le groupe <code>(sans site)</code>&nbsp;;</li>
+        <li>les lignes sans couple <code>xxxx:xxxx</code> sont comptées comme « ignorées »&nbsp;;</li>
+        <li>un couple est une suite de segments séparés par <code>:</code> ne contenant que lettres,
+          chiffres, <code>.</code> <code>_</code> <code>@</code> <code>+</code> <code>-</code>.</li>
+      </ul>
+    </div>
   </details>
 </section>
 
 </main>
 
-<footer>
-  <span>zach-db</span>
-  <span id="meta"></span>
+<footer class="foot">
+  <span class="foot-mark">zach-db</span>
+  <span>le fichier reste sur votre machine</span>
+  <span class="foot-dim">moteur partagé navigateur · serveur · CLI</span>
 </footer>
 
 <script src="/app.js" type="module"></script>

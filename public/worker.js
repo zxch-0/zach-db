@@ -1,12 +1,13 @@
 /*
  * zach-db — worker.
- * Travaille hors du thread principal : l'onglet reste fluide même sur des
+ * Travaille hors du thread principal : la page reste fluide même sur des
  * fichiers de plusieurs Go, et la mémoire reste bornée (le résultat peut être
  * produit en plusieurs passes : compter d'abord, collecter ensuite).
  *
  * Deux familles de passes :
- *   { type: 'pass' }   extraction classique (onglet Extraire)
- *   { type: 'group' }  tri par site (onglet Trier par site)
+ *   { type: 'group' }  tri par site — la seule passe utilisée par la page
+ *   { type: 'pass' }   extraction simple, sans tri (protocole conservé : il
+ *                      sert aux tests et reste utilisable tel quel)
  */
 import { createProcessor } from './lib/parse.js';
 import { createGrouper } from './lib/group.js';
@@ -15,6 +16,7 @@ const CANCELLED = 'zach-db:cancelled';
 const MAX_SITES_SENT = 20000; // au-delà, la liste complète reste côté worker
 const LIVE_SITES = 400; // taille du top envoyé pendant le traitement
 const TEXT_STEP = 512 * 1024; // texte d'un site envoyé par paquets
+const PROGRESS_STEP = 120; // ms entre deux annonces d'avancement (barre de progression)
 
 let cancelFlag = false;
 
@@ -29,7 +31,7 @@ function toList(grouper, max) {
   return { list, total: order.length, truncated: order.length > size };
 }
 
-/* ---------- extraction (onglet 1) ---------- */
+/* ---------- extraction simple, sans tri par site ---------- */
 
 async function runPass(message) {
   const { id, source, options, pass } = message;
@@ -56,10 +58,13 @@ async function runPass(message) {
       const out = processor.pushBytes(chunk);
       if (out) self.postMessage({ type: 'chunk', id, data: out });
       const now = Date.now();
-      if (now - lastReport >= 200) {
+      if (now - lastReport >= PROGRESS_STEP) {
         lastReport = now;
         const stats = processor.stats();
-        self.postMessage({ type: 'progress', id, loaded, lines: stats.lines, matched: stats.matched });
+        self.postMessage({
+          type: 'progress', id, loaded, total: source.size,
+          lines: stats.lines, matched: stats.matched,
+        });
       }
     },
   });
@@ -89,7 +94,7 @@ async function runPass(message) {
   }
 }
 
-/* ---------- tri par site (onglet 2) ---------- */
+/* ---------- tri par site ---------- */
 
 async function runGroup(message) {
   const { id, source, options, pass } = message;
@@ -121,13 +126,13 @@ async function runGroup(message) {
       loaded += chunk.length;
       grouper.pushBytes(chunk);
       const now = Date.now();
-      if (now - lastReport < 200) return;
+      if (now - lastReport < PROGRESS_STEP) return;
       lastReport = now;
 
       const stats = grouper.stats();
       const siteCount = grouper.sites().size;
       self.postMessage({
-        type: 'progress', id, loaded, lines: stats.lines, matched: stats.matched,
+        type: 'progress', id, loaded, total: source.size, lines: stats.lines, matched: stats.matched,
         kept: stats.kept, dropped: stats.dropped, sites: siteCount,
       });
 

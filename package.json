@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Extraction ultra-rapide de morceaux texte:texte depuis de gros fichiers .txt",
+  "description": "Tri par site de gros fichiers .txt : chaque ligne est rangée par site et sa valeur texte:texte extraite, dans le navigateur",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

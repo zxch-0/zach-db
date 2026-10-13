@@ -37,7 +37,7 @@ options :
       --stats           affiche les compteurs sur la sortie d'erreur
   -h, --help            cette aide
 
-tri par site (onglet "trier par site" du site) :
+tri par site (le même traitement que sur le site) :
       --group           ne sort pas les valeurs : liste les sites trouvés
       --json            avec --group : liste en JSON
       --site <nom>      ne sort que les valeurs d'un site (roblox.com…)

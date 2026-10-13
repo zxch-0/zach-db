@@ -201,7 +201,7 @@ function extractLine(line, mode, customRe, keepHosts, scratch) {
 /**
  * Fabrique un extracteur de ligne réutilisable : renvoie la valeur extraite
  * ('user:pass', plusieurs lignes pour le mode "all") ou null.
- * Utilisé par createProcessor et par createGrouper (onglet "trier par site").
+ * Utilisé par createProcessor et par createGrouper (tri par site).
  */
 export function createLineExtractor(options = {}) {
   const mode = MODES.includes(options.mode) ? options.mode : 'last';

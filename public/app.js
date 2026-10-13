@@ -1,63 +1,266 @@
 /*
  * zach-db — interface.
  *
- * Onglet 1 « Extraire » : sort les couples xxxx:xxxx d'un fichier.
- * Onglet 2 « Trier par site » : range les lignes par site (roblox.com,
- *   netflix.com, …) puis affiche les valeurs d'un site au clic.
+ * Une seule fonction côté navigateur : « Trier par site ». Chaque ligne d'un
+ * .txt est lue en flux dans un Web Worker, rangée par site (roblox.com,
+ * netflix.com, …) et sa valeur xxxx:xxxx extraite au passage — le tri extrait
+ * donc déjà les couples, pas besoin d'une seconde passe côté interface.
  *
- * Dans les deux cas : lecture en flux dans un Web Worker, passages successifs
- * (compter puis collecter) pour garder une mémoire bornée, rien n'est envoyé.
+ * Deux temps :
+ *   1. analyse  → une passe complète qui ne garde que des compteurs par site ;
+ *   2. clic     → une passe ciblée qui écrit les valeurs d'un seul site.
  *
- * Cas particulier : si l'URL contient ?dir=/dossier, le serveur lit les
- * fichiers (flux HTTP) au lieu du disque du navigateur.
+ * Rien ne transite par le réseau, sauf si l'URL contient ?dir=/dossier : dans
+ * ce cas le serveur lit les fichiers et diffuse la réponse en flux.
  */
-const SMALL = 16 * 1024 * 1024; // en dessous : une seule passe
-const PART = 32 * 1024 * 1024; // taille visée pour chaque fichier de sortie
-const MEMORY_CAP = 64 * 1024 * 1024; // garde-fou mémoire
-const PREVIEW_CHARS = 48 * 1024;
+const MEMORY_CAP = 64 * 1024 * 1024; // garde-fou mémoire du navigateur
+const PREVIEW_CHARS = 256 * 1024; // texte affiché à l'écran (le .txt, lui, est complet)
 const LIST_LIMIT = 1000; // lignes de sites affichées d'un coup
+const DEFAULT_REGEX = '([a-z0-9._-]+):([a-z0-9._-]+)';
 
 const el = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat('fr-FR');
 const n = (value) => fmt.format(value);
-const mb = (bytes) => (bytes / 1048576).toFixed(1) + ' Mo';
 const dirParam = new URL(location.href).searchParams.get('dir');
 
+const fr = (value, digits) => Number(value || 0).toFixed(digits).replace('.', ',');
+
+/** Taille lisible : 812 o, 12,4 Ko, 1,2 Mo, 3,14 Go. */
+function human(bytes) {
+  const value = Number(bytes) || 0;
+  if (value >= 1073741824) return fr(value / 1073741824, 2) + ' Go';
+  if (value >= 1048576) return fr(value / 1048576, value >= 104857600 ? 0 : 1) + ' Mo';
+  if (value >= 1024) return fr(value / 1024, value >= 102400 ? 0 : 1) + ' Ko';
+  return n(value) + ' o';
+}
+
+/** Durée lisible : 3,2 s. */
+const secs = (value, digits = 1) => fr(value, digits) + ' s';
+
+/* ============================ éléments ============================ */
+
+const form = el('form');
+const fileInput = el('file');
+const pathsInput = el('paths');
+const pathsBox = el('pathsBox');
+const drop = el('drop');
+const dropTitle = el('dropTitle');
+const dropSub = el('dropSub');
+const regexInput = el('regex');
+const regexBox = el('regexBox');
+const subInput = el('sub');
+const dedupeInput = el('dedupe');
+const hostsInput = el('hosts');
+const runButton = el('run');
+const cancelButton = el('cancel');
+
+const metaEl = el('meta');
+const phaseEl = el('phase');
+const progressEl = el('progress');
+const barEl = el('bar');
+const fillEl = el('fill');
+const toplineFill = el('toplineFill');
+const pctEl = el('pct');
+const progressMetaEl = el('progressMeta');
+const statusEl = el('status');
+const tiles = {
+  bytes: el('statBytes'),
+  lines: el('statLines'),
+  sites: el('statSites'),
+  values: el('statValues'),
+  speed: el('statSpeed'),
+  time: el('statTime'),
+};
+
+const resultsEl = el('resultats');
+const summaryEl = el('summary');
+const filterInput = el('filter');
+const sitesEl = el('sites');
+const emptyEl = el('empty');
+const exportButton = el('exportList');
+const resultEl = el('result');
+const resultTitle = el('resultTitle');
+const resultMeta = el('resultMeta');
+const saveButton = el('save');
+const copyButton = el('copy');
+const backButton = el('back');
+const textEl = el('text');
+const warnEl = el('warn');
+
+/* ============================ état ============================ */
+
+const SITES = new Map(); // site → { site, count, bytes }
 let worker = null;
 let passId = 0;
 let abortController = null;
+let busy = false;
+let clock = null;
+let startedAt = 0;
+let selected = null;
+let job = null; // { source, opts, base, remote, paths, stats, site, siteText }
 
-/* ================= onglets ================= */
+/* ============================ petits outils ============================ */
 
-const TABS = [
-  { name: 'extract', tab: el('tab-extract'), panel: el('panel-extract') },
-  { name: 'sites', tab: el('tab-sites'), panel: el('panel-sites') },
-];
+const has = (node) => node !== null && node !== undefined;
+const text = (node, value) => { if (has(node)) node.textContent = value; };
+const cls = (node, name, on) => { if (has(node) && node.classList) node.classList.toggle(name, on); };
 
-function showTab(name, updateHash = true) {
-  for (const item of TABS) {
-    const active = item.name === name;
-    item.tab.setAttribute('aria-selected', String(active));
-    item.panel.hidden = !active;
-  }
-  if (updateHash) history.replaceState(null, '', name === 'sites' ? '#sites' : location.pathname + location.search);
+function log(message) {
+  text(statusEl, message);
 }
 
-for (const item of TABS) item.tab.addEventListener('click', () => showTab(item.name));
+function phase(message) {
+  text(phaseEl, message);
+}
 
-/* ================= Web Worker ================= */
+function stamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  return now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' +
+    pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
+}
+
+function safeName(name) {
+  return String(name || 'zach-db').replace(/[^\w.-]+/g, '_') || 'zach-db';
+}
+
+function cleanName(name) {
+  return (name || 'zach-db').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_') || 'zach-db';
+}
+
+function download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  const release = setTimeout(() => URL.revokeObjectURL(url), 60000);
+  // dans Node (tests) : ne pas retenir le processus ; dans un navigateur, no-op
+  if (release && typeof release.unref === 'function') release.unref();
+}
+
+function textBlob(value) {
+  return new Blob([value], { type: 'text/plain;charset=utf-8' });
+}
+
+function countLines(value) {
+  let count = 0;
+  let index = -1;
+  while ((index = value.indexOf('\n', index + 1)) !== -1) count++;
+  return count;
+}
+
+/** Le début du texte, pour l'aperçu à l'écran seulement. */
+function trimPreview(chunks, limit = PREVIEW_CHARS) {
+  let out = '';
+  for (const chunk of chunks) {
+    out += chunk;
+    if (out.length >= limit) return out.slice(0, limit);
+  }
+  return out;
+}
+
+function flash(button, message) {
+  if (!has(button)) return;
+  const before = button.textContent;
+  button.textContent = message;
+  setTimeout(() => { button.textContent = before; }, 1500);
+}
+
+/* ============================ barre de progression ============================ */
+
+/**
+ * La barre suit l'avancement réel du traitement des lignes : le worker lit le
+ * fichier en flux et annonce les octets consommés, donc `loaded / taille` est
+ * exactement la part des lignes déjà traitées.
+ */
+function barMode(mode) {
+  if (!has(progressEl) || !progressEl.classList) return;
+  progressEl.classList.remove('running', 'indeterminate', 'done');
+  if (mode) progressEl.classList.add(mode);
+}
+
+function setBar(ratio) {
+  const value = Math.max(0, Math.min(1, Number(ratio) || 0));
+  const width = (value * 100).toFixed(2) + '%';
+  if (has(fillEl) && fillEl.style) fillEl.style.width = width;
+  if (has(toplineFill) && toplineFill.style) toplineFill.style.width = width;
+  if (has(barEl) && barEl.setAttribute) barEl.setAttribute('aria-valuenow', String(Math.floor(value * 100)));
+  text(pctEl, Math.floor(value * 100) + '\u00a0%');
+}
+
+function setTile(key, value) {
+  text(tiles[key], value);
+}
+
+function resetTiles() {
+  setTile('bytes', '0');
+  setTile('lines', '0');
+  setTile('sites', '0');
+  setTile('values', '0');
+  setTile('speed', '—');
+  setTile('time', secs(0));
+}
+
+/** Mise à jour barre + compteurs, à chaque annonce du worker. */
+function report(data, total, label) {
+  const seconds = (Date.now() - startedAt) / 1000;
+  const loaded = data.loaded || 0;
+  const values = data.kept !== undefined ? data.kept : (data.matched || 0);
+  const siteCount = data.sites !== undefined ? data.sites : SITES.size;
+  const speed = seconds > 0.02 && loaded ? loaded / seconds : 0;
+
+  if (total) {
+    setBar(loaded / total);
+    barMode('running');
+  }
+
+  setTile('bytes', human(loaded));
+  setTile('lines', n(data.lines || 0));
+  setTile('sites', n(siteCount));
+  setTile('values', n(values));
+  setTile('speed', speed ? human(speed) + '/s' : '—');
+
+  const left = speed > 0 && total > loaded ? (total - loaded) / speed : 0;
+  const remaining = !left ? '' : ' · reste ' +
+    (left < 1 ? 'moins d’une seconde'
+      : left < 10 ? 'environ ' + secs(left)
+      : 'environ ' + secs(Math.round(left), 0));
+  text(progressMetaEl,
+    label + ' · ' + n(loaded) + (total ? ' / ' + n(total) : '') + ' octets · ' +
+    n(data.lines || 0) + ' lignes · ' + n(values) + ' valeurs · ' + n(siteCount) + ' sites' +
+    (speed ? ' · ' + human(speed) + '/s' : '') + remaining);
+}
+
+function startClock() {
+  stopClock();
+  startedAt = Date.now();
+  clock = setInterval(() => setTile('time', secs((Date.now() - startedAt) / 1000)), 100);
+  // dans Node (tests) : ne pas retenir le processus ; dans un navigateur, no-op
+  if (clock && typeof clock.unref === 'function') clock.unref();
+}
+
+function stopClock() {
+  if (clock) clearInterval(clock);
+  clock = null;
+}
+
+/* ============================ Web Worker ============================ */
 
 function ensureWorker() {
   if (worker) return worker;
   worker = new Worker('/worker.js', { type: 'module' });
   worker.onerror = (event) => {
-    el('status').textContent = 'erreur worker : ' + (event.message || 'inconnue');
-    el('gstatus').textContent = 'erreur worker : ' + (event.message || 'inconnue');
+    const message = 'erreur worker : ' + ((event && event.message) || 'inconnue');
+    log(message);
+    phase('erreur');
   };
   return worker;
 }
 
-/** Envoie une passe au worker et résout avec le message "done". */
+/** Envoie une passe au worker et résout avec le message « done ». */
 function runWorker(message, handlers = {}) {
   const id = ++passId;
   return new Promise((resolve, reject) => {
@@ -91,87 +294,36 @@ function cancelWorker() {
   if (abortController) abortController.abort();
 }
 
-/* ================= outils communs ================= */
+/* ============================ réglages ============================ */
 
-function trimPreview(chunks, limit = PREVIEW_CHARS) {
-  let text = '';
-  for (const chunk of chunks) {
-    text += chunk;
-    if (text.length >= limit) return text.slice(0, limit) + '\n[...]';
-  }
-  return text;
+function checkedMode() {
+  const input = form.querySelector('input[name="mode"]:checked');
+  return input ? input.value : 'last';
 }
 
-function stamp() {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, '0');
-  return now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' +
-    pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds());
-}
-
-function download(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-
-function textBlob(text) {
-  return new Blob([text], { type: 'text/plain;charset=utf-8' });
-}
-
-function countLines(text) {
-  let count = 0;
-  let index = -1;
-  while ((index = text.indexOf('\n', index + 1)) !== -1) count++;
-  return count;
-}
-
-function readMode(form, name, regexInput, label) {
-  const mode = form.querySelector('input[name="' + name + '"]:checked').value;
+function options() {
+  const mode = checkedMode();
   const regex = regexInput.value.trim();
   if (mode === 'custom') {
     try {
-      new RegExp(regex || '([a-z0-9._-]+):([a-z0-9._-]+)'); // validation avant lancement
+      new RegExp(regex || DEFAULT_REGEX); // validée avant le lancement
     } catch (err) {
       throw new Error('regex invalide : ' + err.message);
     }
   }
-  return { mode, regex };
+  return {
+    mode,
+    regex,
+    dedupe: !!dedupeInput.checked,
+    hosts: !!hostsInput.checked,
+    stripSubdomains: !!subInput.checked,
+  };
 }
 
-function cleanName(name) {
-  return (name || 'zach-db').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_') || 'zach-db';
-}
-
-/* ==================================================================
- * Onglet 1 — Extraire
- * ================================================================== */
-
-const form = el('form');
-const fileInput = el('file');
-const filesInput = el('files');
-const regexInput = el('regex');
-const dedupeInput = el('dedupe');
-const hostsInput = el('hosts');
-const runButton = el('run');
-const cancelButton = el('cancel');
-const downloadButton = el('download');
-const statusEl = el('status');
-const previewBox = el('previewBox');
-const preview = el('preview');
-const metaEl = el('meta');
-
-let busy = false;
-let current = null; // { opts, base, multipart, stats, names }
-
-function extractOptions() {
-  const { mode, regex } = readMode(form, 'mode', regexInput);
-  return { mode, regex, dedupe: dedupeInput.checked, hosts: hostsInput.checked };
+/** Le champ regex n'apparaît que si le mode « regex perso » est choisi. */
+function syncMode() {
+  const custom = checkedMode() === 'custom';
+  if (has(regexBox)) regexBox.hidden = !custom;
 }
 
 function setBusy(value) {
@@ -179,51 +331,36 @@ function setBusy(value) {
   runButton.disabled = value;
   cancelButton.disabled = !value;
   fileInput.disabled = value;
-  filesInput.disabled = value;
-  if (value) downloadButton.disabled = true;
-}
-
-/** Extraction locale : une passe si c'est petit, sinon comptage puis tranches. */
-async function extractPass({ source, opts, count = false, skip = 0, limit = Infinity, label = 'lecture' }) {
-  const chunks = [];
-  const started = Date.now();
-  let keptChars = 0;
-  let tooBig = false;
-
-  try {
-    const stats = await runWorker({ type: 'pass', source, options: opts, pass: { count, skip, limit } }, {
-      onChunk(chunk) {
-        if (tooBig) return;
-        keptChars += chunk.length;
-        if (keptChars * 2 > MEMORY_CAP) {
-          tooBig = true;
-          worker.postMessage({ type: 'cancel' });
-          return;
-        }
-        chunks.push(chunk);
-        preview.textContent = trimPreview(chunks);
-      },
-      onProgress(data) {
-        statusEl.textContent = progressLine(label, data, source.size, started);
-      },
-    });
-    return { text: count ? null : chunks.join(''), tooBig: false, stats };
-  } catch (err) {
-    if (err.code === 'CANCELLED' && tooBig) return { text: null, tooBig: true, stats: null };
-    throw err;
+  pathsInput.disabled = value;
+  cls(drop, 'busy', value);
+  cls(document.body, 'busy', value);
+  if (value) {
+    saveButton.disabled = true;
+    copyButton.disabled = true;
+    filterInput.disabled = true;
+    exportButton.disabled = true;
+  } else {
+    filterInput.disabled = SITES.size === 0;
+    exportButton.disabled = SITES.size === 0;
   }
 }
 
-function progressLine(label, data, total, started) {
-  const seconds = (Date.now() - started) / 1000;
-  const percent = total ? ' ' + Math.floor((data.loaded / total) * 100) + '%' : '';
-  const speed = seconds > 0.2 ? ' — ' + (data.lines / seconds / 1e6).toFixed(1) + ' M lignes/s' : '';
-  return label + '…' + percent + ' ' + n(data.loaded) + ' / ' + n(total) + ' octets — ' +
-    n(data.lines) + ' lignes — ' + n(data.matched) + ' couples' + speed;
-}
+/* ============================ source ============================ */
 
-function localFiles() {
-  return Array.from(fileInput.files || []);
+function describeFiles() {
+  const list = fileInput.files || [];
+  let size = 0;
+  for (const file of list) size += file.size || 0;
+
+  if (!list.length) {
+    text(dropTitle, 'Déposez vos fichiers .txt');
+    text(dropSub, 'ou cliquez pour parcourir — plusieurs fichiers acceptés');
+    text(metaEl, dirParam ? 'serveur · ?dir=' + dirParam : 'local · aucun envoi');
+    return;
+  }
+  text(dropTitle, list.length === 1 ? list[0].name : n(list.length) + ' fichiers .txt');
+  text(dropSub, human(size) + ' — lus en flux, dans votre navigateur');
+  text(metaEl, n(list.length) + ' fichier(s) · ' + human(size));
 }
 
 function sourceFromFiles(files) {
@@ -236,375 +373,238 @@ function sourceFromFiles(files) {
   return { source: new Blob(parts, { type: 'text/plain' }), base: 'zach-db' };
 }
 
-function partName(base, index, total) {
-  if (total <= 1) return base + '-' + stamp() + '.txt';
-  return base + '-part' + String(index + 1).padStart(3, '0') + '.txt';
-}
+/* ============================ liste des sites ============================ */
 
-async function runLocal(source, base, opts) {
-  current = { opts, base, multipart: 1, stats: null, names: [] };
-  previewBox.hidden = false;
-
-  if (source.size <= SMALL) {
-    const result = await extractPass({ source, opts, label: 'extraction' });
-    if (!result.tooBig) {
-      const name = partName(base, 0, 1);
-      download(textBlob(result.text), name);
-      finish(result.stats, [name]);
-      return;
-    }
-  }
-  return runLocalMultiPass(source, base, opts);
-}
-
-async function runLocalMultiPass(source, base, opts) {
-  statusEl.textContent = 'comptage…';
-  const counted = await extractPass({ source, opts, count: true, label: 'comptage' });
-  const stats = counted.stats;
-  current.stats = stats;
-
-  if (stats.matched === 0) {
-    finish(stats, []);
-    return;
-  }
-
-  const parts = Math.max(1, Math.ceil(stats.outChars / PART));
-  current.multipart = parts;
-  const names = [];
-  let skip = 0;
-
-  for (let index = 0; index < parts; index++) {
-    const result = await extractPass({
-      source,
-      opts,
-      skip,
-      limit: PART,
-      label: 'extraction partie ' + (index + 1) + '/' + parts,
-    });
-    if (!result.text) break;
-    const name = partName(base, index, parts);
-    download(textBlob(result.text), name);
-    names.push(name);
-    skip += result.stats.emittedBytes;
-  }
-
-  finish(stats, names);
-}
-
-/** Extraction depuis des fichiers du serveur (?dir=…). */
-async function runRemote(paths, opts) {
-  current = { opts, base: 'zach-db', multipart: 1, stats: null, names: [] };
-  previewBox.hidden = false;
-  preview.textContent = '';
-  statusEl.textContent = 'lecture serveur…';
-
-  abortController = new AbortController();
-  const started = Date.now();
-  const query = '/api/extract?mode=' + encodeURIComponent(opts.mode) +
-    '&regex=' + encodeURIComponent(opts.regex) + '&dedupe=' + (opts.dedupe ? 1 : 0) +
-    '&hosts=' + (opts.hosts ? 1 : 0) +
-    (dirParam ? '&dir=' + encodeURIComponent(dirParam) + '&paths=1' : '');
-  const response = await fetch(query, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain;charset=utf-8' },
-    body: paths.join('\n'),
-    signal: abortController.signal,
-  });
-  if (!response.ok || !response.body) {
-    throw new Error('serveur : ' + response.status + ' ' + (await response.text()).slice(0, 300));
-  }
-
-  const reader = response.body.getReader();
-  const chunks = [];
-  let chars = 0;
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    const text = new TextDecoder().decode(value, { stream: true });
-    chars += text.length;
-    if (chars * 2 > MEMORY_CAP) {
-      await reader.cancel();
-      throw new Error('sortie trop volumineuse pour le navigateur — utilisez l’API curl (voir plus bas).');
-    }
-    chunks.push(text);
-    statusEl.textContent = 'lecture serveur… ' + mb(chars) + ' reçus en ' +
-      ((Date.now() - started) / 1000).toFixed(1) + ' s';
-    preview.textContent = trimPreview(chunks);
-  }
-
-  const text = chunks.join('');
-  const name = 'zach-db-' + stamp() + '.txt';
-  download(textBlob(text), name);
-  finish({
-    bytes: 0, lines: 0, matched: countLines(text), outLines: countLines(text),
-    outChars: text.length, ms: Date.now() - started,
-  }, [name], true);
-}
-
-function finish(stats, names, remote = false) {
-  const seconds = Math.max(stats.ms, 1) / 1000;
-  const lines = ['terminé.'];
-  if (remote) {
-    lines.push('source : serveur (le serveur lit les fichiers, le navigateur écrit le .txt)');
-  } else {
-    lines.push('lu : ' + n(stats.bytes) + ' octets (' + mb(stats.bytes) + ') en ' + seconds.toFixed(2) +
-      ' s (' + mb(stats.bytes / seconds) + '/s)');
-  }
-  if (stats.lines) lines.push('lignes : ' + n(stats.lines) + ' — couples trouvés : ' + n(stats.matched));
-  lines.push('sortie : ' + n(stats.outLines) + ' lignes (' + mb(stats.outChars) + ')');
-  if (names.length === 1) lines.push('fichier téléchargé : ' + names[0]);
-  else if (names.length > 1) lines.push(names.length + ' fichiers téléchargés : ' + names.join(', '));
-  if (stats.matched === 0) lines.push('aucun couple trouvé — essayez un autre mode ou une regex perso.');
-  statusEl.textContent = lines.join('\n');
-
-  downloadButton.disabled = stats.matched === 0;
-  downloadButton.textContent = current && current.multipart > 1
-    ? 'Relancer l’export (' + current.multipart + ' fichiers)'
-    : 'Télécharger .txt';
-  setBusy(false);
-}
-
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (busy) return;
-
-  let opts;
-  try {
-    opts = extractOptions();
-  } catch (err) {
-    statusEl.textContent = err.message;
-    return;
-  }
-
-  const files = localFiles();
-  const listed = filesInput.value.split('\n').map((line) => line.trim()).filter(Boolean);
-  preview.textContent = '';
-  downloadButton.textContent = 'Télécharger .txt';
-  setBusy(true);
-
-  try {
-    if (files.length === 0) {
-      if (listed.length === 0) throw new Error('choisissez un fichier .txt (ou une liste avec ?dir=…).');
-      if (!dirParam) {
-        throw new Error('lecture de chemins locaux impossible depuis le navigateur : utilisez ?dir=/dossier, l’API curl ou la CLI.');
-      }
-      await runRemote(listed, opts);
-      return;
-    }
-    const { source, base } = sourceFromFiles(files);
-    await runLocal(source, base, opts);
-  } catch (err) {
-    if (err.code === 'CANCELLED' || err.name === 'AbortError') statusEl.textContent = 'annulé.';
-    else statusEl.textContent = 'erreur : ' + err.message;
-    setBusy(false);
-  }
-});
-
-cancelButton.addEventListener('click', () => {
-  cancelWorker();
-  statusEl.textContent = 'annulation…';
-});
-
-downloadButton.addEventListener('click', async () => {
-  if (!current || busy) return;
-  const files = localFiles();
-  if (files.length === 0) return;
-  setBusy(true);
-  try {
-    const { source, base } = sourceFromFiles(files);
-    await runLocal(source, base, current.opts);
-  } catch (err) {
-    if (err.code !== 'CANCELLED') statusEl.textContent = 'erreur : ' + err.message;
-    setBusy(false);
-  }
-});
-
-fileInput.addEventListener('change', () => {
-  const list = fileInput.files || [];
-  if (list.length) {
-    let size = 0;
-    for (const file of list) size += file.size;
-    metaEl.textContent = n(list.length) + ' fichier(s) · ' + mb(size);
-  }
-});
-
-regexInput.addEventListener('input', () => {
-  if (regexInput.value.trim()) form.querySelector('input[name="mode"][value="custom"]').checked = true;
-});
-
-/* ==================================================================
- * Onglet 2 — Trier par site
- * ================================================================== */
-
-const groupForm = el('groupForm');
-const gfileInput = el('gfile');
-const gfilesInput = el('gfiles');
-const gregexInput = el('gregex');
-const gsubInput = el('gsub');
-const gdedupeInput = el('gdedupe');
-const ghostsInput = el('ghosts');
-const gscanButton = el('gscan');
-const gcancelButton = el('gcancel');
-const gstatusEl = el('gstatus');
-const gfilterInput = el('gfilter');
-const gsummaryEl = el('gsummary');
-const gsitesEl = el('gsites');
-const gresultEl = el('gresult');
-const gtitreEl = el('gtitre');
-const gsaveButton = el('gsave');
-const gprevButton = el('gprev');
-const gtextEl = el('gtext');
-const gwarnEl = el('gwarn');
-
-const GROUP_SITES = new Map(); // site → { site, count, bytes }
-let groupBusy = false;
-let groupJob = null; // { source, opts, base, remote, stats, site, siteText }
-
-function groupOptions() {
-  const { mode, regex } = readMode(groupForm, 'gmode', gregexInput);
-  return {
-    mode,
-    regex,
-    dedupe: gdedupeInput.checked,
-    hosts: ghostsInput.checked,
-    stripSubdomains: gsubInput.checked,
-  };
-}
-
-function setGroupBusy(value) {
-  groupBusy = value;
-  gscanButton.disabled = value;
-  gcancelButton.disabled = !value;
-  gfileInput.disabled = value;
-  gfilesInput.disabled = value;
-  if (value) gsaveButton.disabled = true;
-}
+const byWeight = (a, b) =>
+  b.bytes - a.bytes || b.count - a.count || (a.site < b.site ? -1 : a.site > b.site ? 1 : 0);
 
 function replaceSites(list) {
-  GROUP_SITES.clear();
-  for (const entry of list) GROUP_SITES.set(entry.site, entry);
+  SITES.clear();
+  for (const entry of list || []) SITES.set(entry.site, entry);
+}
+
+function resetSites() {
+  replaceSites([]);
+  renderSites();
 }
 
 function renderSites() {
-  const filter = gfilterInput.value.trim().toLowerCase();
-  let entries = [...GROUP_SITES.values()];
-  entries.sort((a, b) => b.bytes - a.bytes || b.count - a.count || (a.site < b.site ? -1 : a.site > b.site ? 1 : 0));
-  if (filter) entries = entries.filter((entry) => entry.site.toLowerCase().includes(filter));
+  if (!has(sitesEl)) return;
+  const filter = (filterInput.value || '').trim().toLowerCase();
+  const all = [...SITES.values()].sort(byWeight);
+  const shown = filter ? all.filter((entry) => entry.site.toLowerCase().includes(filter)) : all;
+  const maxBytes = all.length ? all[0].bytes || 1 : 1;
 
   const fragment = document.createDocumentFragment();
-  for (const entry of entries.slice(0, LIST_LIMIT)) {
+  shown.slice(0, LIST_LIMIT).forEach((entry, index) => {
     const li = document.createElement('li');
+    if (entry.site === selected) li.className = 'selected';
+
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'siteLink';
-    button.textContent = entry.site;
+    button.className = 'site-row';
+    if (busy) button.disabled = true;
+    if (entry.site === selected && button.setAttribute) button.setAttribute('aria-current', 'true');
     button.addEventListener('click', () => openSite(entry.site));
-    const info = document.createElement('span');
-    info.className = 'count';
-    info.textContent = n(entry.count) + (entry.count > 1 ? ' valeurs' : ' valeur') + ' · ' + mb(entry.bytes);
-    li.append(button, ' ', info);
-    fragment.append(li);
-  }
-  gsitesEl.replaceChildren(fragment);
 
-  const total = GROUP_SITES.size;
-  if (filter) {
-    gsummaryEl.textContent = entries.length + ' site(s) sur ' + n(total) + ' — ' +
-      (entries.length > LIST_LIMIT ? 'affichage limité à ' + LIST_LIMIT + ', affinez le filtre' : 'cliquez sur un site');
-  } else if (total === 0) {
-    gsummaryEl.textContent = 'aucun site pour le moment.';
+    const rank = document.createElement('span');
+    rank.className = 'rank';
+    rank.textContent = String(index + 1).padStart(2, '0');
+
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = entry.site;
+    if (name.setAttribute) name.setAttribute('title', entry.site);
+
+    const share = document.createElement('span');
+    share.className = 'share';
+    const bar = document.createElement('i');
+    if (bar.style) bar.style.width = Math.max(2, Math.round((entry.bytes / maxBytes) * 100)) + '%';
+    share.appendChild(bar);
+
+    const num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = n(entry.count);
+
+    const size = document.createElement('span');
+    size.className = 'size';
+    size.textContent = human(entry.bytes);
+
+    button.append(rank, name, share, num, size);
+    li.appendChild(button);
+    fragment.append(li);
+  });
+  sitesEl.replaceChildren(fragment);
+
+  if (has(emptyEl)) {
+    emptyEl.hidden = shown.length > 0;
+    text(emptyEl, SITES.size
+      ? (filter ? 'aucun site ne contient « ' + filter + ' ».' : '—')
+      : 'La liste apparaîtra ici, triée du plus gros au plus petit.');
+  }
+
+  const total = SITES.size;
+  if (!total) {
+    text(summaryEl, 'aucune analyse pour le moment');
+  } else if (filter) {
+    text(summaryEl, n(shown.length) + ' site(s) sur ' + n(total) +
+      (shown.length > LIST_LIMIT ? ' — affichage limité à ' + n(LIST_LIMIT) + ', affinez le filtre' : ''));
   } else {
-    gsummaryEl.textContent = n(total) + ' site(s) — ' +
-      (total > LIST_LIMIT ? 'affichage limité à ' + LIST_LIMIT + ' (filtrez pour en voir d’autres)' : 'cliquez sur un site');
+    text(summaryEl, n(total) + ' site(s)' +
+      (total > LIST_LIMIT ? ' — affichage limité à ' + n(LIST_LIMIT) + ', filtrez pour en voir d’autres'
+        : ' — cliquez pour voir les valeurs'));
   }
 }
 
-/** Écran de lecture d'un site. */
-function showSiteTitle(site) {
-  const entry = GROUP_SITES.get(site);
-  gtitreEl.textContent = site + (entry ? ' — ' + n(entry.count) + ' valeurs · ' + mb(entry.bytes) : '');
-  gresultEl.hidden = false;
-  gwarnEl.hidden = true;
-  gtextEl.textContent = 'lecture…';
-  gsaveButton.disabled = true;
-  gresultEl.scrollIntoView({ block: 'nearest' });
+/* ============================ détail d'un site ============================ */
+
+function showDetail(site) {
+  selected = site;
+  cls(resultsEl, 'open', true);
+  if (has(resultEl)) resultEl.hidden = false;
+  text(resultTitle, site);
+  const entry = SITES.get(site);
+  text(resultMeta, entry ? n(entry.count) + ' valeurs · ' + human(entry.bytes) : 'lecture…');
+  if (has(warnEl)) warnEl.hidden = true;
+  text(textEl, 'lecture…');
+  saveButton.disabled = true;
+  copyButton.disabled = true;
+  text(saveButton, 'Télécharger ' + safeName(site) + '.txt');
+  if (has(resultEl) && resultEl.scrollIntoView) {
+    resultEl.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+function closeDetail() {
+  selected = null;
+  if (job) {
+    job.site = null;
+    job.siteText = '';
+  }
+  cls(resultsEl, 'open', false);
+  if (has(resultEl)) resultEl.hidden = true;
+  text(textEl, '');
+  saveButton.disabled = true;
+  copyButton.disabled = true;
+  renderSites();
+}
+
+function showSiteText(site, stats, chunks) {
+  const full = (job && job.siteText) || '';
+  text(textEl, chunks ? trimPreview(chunks) : full.slice(0, PREVIEW_CHARS));
+  const values = stats ? stats.outLines : countLines(full);
+  const bytes = stats ? stats.outChars : full.length;
+  const seconds = stats ? stats.ms / 1000 : 0;
+  text(resultMeta, n(values) + ' valeurs · ' + human(bytes) +
+    (seconds ? ' · lues en ' + secs(seconds, 2) : '') +
+    (full.length > PREVIEW_CHARS
+      ? ' · aperçu ' + human(PREVIEW_CHARS) + ' sur ' + human(full.length) + ', le .txt téléchargé contient tout'
+      : ''));
+  text(phaseEl, site + ' — ' + n(values) + ' valeurs');
+  saveButton.disabled = !full;
+  copyButton.disabled = !full;
 }
 
 async function openSite(site) {
-  if (!groupJob || groupBusy) return;
-  showSiteTitle(site);
-  setGroupBusy(true);
+  if (!job || busy) return;
+  showDetail(site);
+  renderSites();
+  setBusy(true);
+  startClock();
+  setBar(0);
+  barMode('idle');
+  phase('lecture de ' + site);
+  text(progressMetaEl, 'seconde passe : seules les valeurs de ' + site + ' sont écrites.');
+
   const chunks = [];
   let kept = 0;
-  let full = false;
-  const started = Date.now();
+  let capped = false;
 
   try {
-    if (groupJob.remote) {
-      const text = await remoteSiteText(site);
-      gtextEl.textContent = trimPreview([text]);
-      groupJob.site = site;
-      groupJob.siteText = text;
-      gstatusEl.textContent = 'site ' + site + ' : ' + n(countLines(text)) + ' valeurs (' +
-        mb(text.length) + ') en ' + ((Date.now() - started) / 1000).toFixed(2) + ' s';
+    if (job.remote) {
+      barMode('indeterminate');
+      setBar(0.32);
+      const started = Date.now();
+      const value = await remoteSiteText(site);
+      job.site = site;
+      job.siteText = value;
+      setBar(1);
+      barMode('done');
+      showSiteText(site, { outLines: countLines(value), outChars: value.length, ms: Date.now() - started });
+      log(['site ' + site + ' : ' + n(countLines(value)) + ' valeurs (' + human(value.length) + ')',
+        'source : serveur (dossier ?dir=' + dirParam + ')'].join('\n'));
     } else {
       const stats = await runWorker({
         type: 'group',
-        source: groupJob.source,
-        options: groupJob.opts,
+        source: job.source,
+        options: job.opts,
         pass: { onlySite: site, count: false, maxTextBytes: MEMORY_CAP },
       }, {
         onChunk(chunk) {
-          if (full) return;
+          if (capped) return;
           kept += chunk.length;
           if (kept * 2 > MEMORY_CAP) {
-            full = true;
+            capped = true; // on arrête de garder le texte, les compteurs continuent
             return;
           }
           chunks.push(chunk);
-          gtextEl.textContent = trimPreview(chunks);
+          text(textEl, trimPreview(chunks));
         },
         onProgress(data) {
-          gstatusEl.textContent = 'site ' + site + '… ' + n(data.loaded) + ' / ' + n(groupJob.source.size) +
-            ' octets — ' + n(data.kept) + ' valeurs';
+          report(data, job.source.size, 'lecture de ' + site);
         },
       });
 
-      groupJob.site = site;
-      groupJob.siteText = chunks.join('');
-      gtextEl.textContent = trimPreview(chunks);
-      gstatusEl.textContent = 'site ' + site + ' : ' + n(stats.outLines) + ' valeurs (' +
-        mb(stats.outChars) + ') en ' + (stats.ms / 1000).toFixed(2) + ' s';
-      if (full || stats.truncated) {
-        gwarnEl.hidden = false;
-        gwarnEl.textContent = 'sortie trop grosse pour la mémoire du navigateur : le .txt téléchargé est ' +
-          'partiel. Utilisez la CLI (node cli.js fichier --group --site=' + site + ') ou l’API (?site=' + site + ').';
+      job.site = site;
+      job.siteText = chunks.join('');
+      setBar(1);
+      barMode('done');
+      showSiteText(site, stats, chunks);
+      log([
+        'site ' + site + ' : ' + n(stats.outLines) + ' valeurs (' + human(stats.outChars) + ') en ' +
+          secs(stats.ms / 1000, 2),
+        'fichier lu : ' + n(stats.bytes) + ' octets — ' + n(stats.lines) + ' lignes parcourues',
+        stats.outLines === 0 ? 'aucune valeur pour ce site avec ces réglages.' : 'téléchargez le .txt, ou copiez l’aperçu.',
+      ].join('\n'));
+
+      if (capped || stats.truncated) {
+        if (has(warnEl)) warnEl.hidden = false;
+        text(warnEl, 'sortie trop grosse pour la mémoire du navigateur : le .txt téléchargé est partiel. ' +
+          'Utilisez la CLI (node cli.js fichier --group --site=' + site + ') ou l’API (?site=' + site + ').');
       }
     }
-    gsaveButton.disabled = !groupJob.siteText;
   } catch (err) {
-    if (err.code === 'CANCELLED') gstatusEl.textContent = 'annulé.';
-    else gstatusEl.textContent = 'erreur : ' + err.message;
-    gtextEl.textContent = '';
+    barMode('idle');
+    setBar(0);
+    if (err.code === 'CANCELLED' || err.name === 'AbortError') {
+      log('annulé.');
+      phase('annulé');
+    } else {
+      log('erreur : ' + err.message);
+      phase('erreur');
+    }
+    text(textEl, '');
   } finally {
-    gsaveButton.textContent = 'Télécharger ' + site + '.txt';
-    setGroupBusy(false);
+    stopClock();
+    setBusy(false);
+    renderSites();
   }
 }
 
+/** Valeurs d'un site, lues par le serveur (?dir=…). */
 async function remoteSiteText(site) {
   abortController = new AbortController();
   const query = '/api/group?site=' + encodeURIComponent(site) +
-    '&mode=' + encodeURIComponent(groupJob.opts.mode) +
-    '&regex=' + encodeURIComponent(groupJob.opts.regex) +
-    '&dedupe=' + (groupJob.opts.dedupe ? 1 : 0) +
-    '&hosts=' + (groupJob.opts.hosts ? 1 : 0) +
-    '&subdomains=' + (groupJob.opts.stripSubdomains ? 1 : 0) +
+    '&mode=' + encodeURIComponent(job.opts.mode) +
+    '&regex=' + encodeURIComponent(job.opts.regex) +
+    '&dedupe=' + (job.opts.dedupe ? 1 : 0) +
+    '&hosts=' + (job.opts.hosts ? 1 : 0) +
+    '&subdomains=' + (job.opts.stripSubdomains ? 1 : 0) +
     (dirParam ? '&dir=' + encodeURIComponent(dirParam) + '&paths=1' : '');
   const response = await fetch(query, {
     method: 'POST',
     headers: { 'content-type': 'text/plain;charset=utf-8' },
-    body: groupJob.paths.join('\n'),
+    body: job.paths.join('\n'),
     signal: abortController.signal,
   });
   if (!response.ok || !response.body) {
@@ -616,48 +616,99 @@ async function remoteSiteText(site) {
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    const text = new TextDecoder().decode(value, { stream: true });
-    chars += text.length;
+    const piece = new TextDecoder().decode(value, { stream: true });
+    chars += piece.length;
     if (chars * 2 > MEMORY_CAP) {
       await reader.cancel();
-      gwarnEl.hidden = false;
-      gwarnEl.textContent = 'sortie trop grosse pour le navigateur : le .txt contiendra le début seulement. ' +
-        'Utilisez l’API en direct : curl … ?site=' + site + ' -o ' + site + '.txt';
+      if (has(warnEl)) warnEl.hidden = false;
+      text(warnEl, 'sortie trop grosse pour le navigateur : le .txt contiendra le début seulement. ' +
+        'Utilisez l’API en direct : curl … ?site=' + site + ' -o ' + site + '.txt');
       break;
     }
-    chunks.push(text);
+    chunks.push(piece);
+    text(progressMetaEl, 'lecture serveur · ' + human(chars) + ' reçus pour ' + site);
   }
   return chunks.join('');
 }
 
-async function groupScan() {
+/* ============================ analyse ============================ */
+
+/** Amène un bloc sous les yeux s'il est hors écran (fin d'analyse, clic…). */
+function reveal(node) {
+  if (!has(node) || typeof node.getBoundingClientRect !== 'function') return;
+  const rect = node.getBoundingClientRect();
+  const screen = (typeof window !== 'undefined' && window.innerHeight) || 0;
+  if (rect.top < screen && rect.bottom > 0) return; // déjà visible
+  if (node.scrollIntoView) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function finishScan(stats) {
+  const seconds = Math.max(stats.ms, 1) / 1000;
+  setBar(1);
+  barMode('done');
+  renderSites();
+
+  setTile('bytes', human(stats.bytes));
+  setTile('lines', n(stats.lines));
+  setTile('sites', n(stats.sites));
+  setTile('values', n(stats.kept));
+  setTile('speed', human(stats.bytes / seconds) + '/s');
+  setTile('time', secs(seconds, 2));
+  text(progressMetaEl, n(stats.bytes) + ' octets · ' + n(stats.lines) + ' lignes · ' +
+    n(stats.sites) + ' sites · ' + n(stats.kept) + ' valeurs · ' + secs(seconds, 2));
+  phase(stats.kept ? 'terminé — cliquez sur un site' : 'terminé — aucune valeur');
+
+  log([
+    'terminé.',
+    'lu : ' + n(stats.bytes) + ' octets (' + human(stats.bytes) + ') en ' + secs(seconds, 2) +
+      ' (' + human(stats.bytes / seconds) + '/s)',
+    'lignes : ' + n(stats.lines) + ' — avec couple : ' + n(stats.matched) + ' — ignorées : ' + n(stats.skipped),
+    'sites : ' + n(stats.sites) + ' — valeurs : ' + n(stats.kept) + ' (' + human(stats.bytes) + ')',
+    stats.kept === 0
+      ? 'aucune valeur trouvée — essayez un autre mode, ou une regex perso.'
+      : 'cliquez sur un site pour afficher ses valeurs.',
+  ].join('\n'));
+
+  if (stats.sites) reveal(resultsEl);
+}
+
+async function scan() {
   let opts;
   try {
-    opts = groupOptions();
+    opts = options();
   } catch (err) {
-    gstatusEl.textContent = err.message;
+    log(err.message);
+    phase('réglage invalide');
     return;
   }
 
-  const files = Array.from(gfileInput.files || []);
-  const listed = gfilesInput.value.split('\n').map((line) => line.trim()).filter(Boolean);
-  gresultEl.hidden = true;
-  gsaveButton.disabled = true;
-  replaceSites([]);
-  renderSites();
-  setGroupBusy(true);
+  const files = Array.from(fileInput.files || []);
+  const listed = (pathsInput.value || '').split('\n').map((line) => line.trim()).filter(Boolean);
+
+  closeDetail();
+  resetSites();
+  resetTiles();
+  setBusy(true);
+  startClock();
+  setBar(0);
+  barMode('idle');
+  phase('préparation');
 
   try {
     if (files.length === 0) {
       if (listed.length === 0) throw new Error('choisissez un fichier .txt (ou une liste avec ?dir=…).');
-      if (!dirParam) throw new Error('lecture de chemins locaux impossible depuis le navigateur : utilisez ?dir=/dossier, l’API curl ou la CLI.');
-      await groupRemoteScan(listed, opts);
+      if (!dirParam) {
+        throw new Error('le navigateur ne peut pas lire un chemin local : ajoutez ?dir=/dossier à l’URL, ' +
+          'ou utilisez l’API curl / la CLI.');
+      }
+      await remoteScan(listed, opts);
       return;
     }
 
     const { source, base } = sourceFromFiles(files);
-    groupJob = { source, opts, base, remote: false, stats: null };
-    gstatusEl.textContent = 'analyse…';
+    job = { source, opts, base, remote: false, paths: null, stats: null, site: null, siteText: '' };
+    phase('analyse du fichier');
+    text(progressMetaEl, 'première passe : les lignes sont rangées par site, seules les valeurs sont gardées.');
 
     const stats = await runWorker({
       type: 'group',
@@ -668,43 +719,48 @@ async function groupScan() {
       onSites(data) {
         replaceSites(data.sites);
         renderSites();
-        gstatusEl.textContent = 'analyse… ' + n(GROUP_SITES.size) + ' sites sur ' + n(data.total) +
-          (data.live ? ' (liste en cours)' : '');
+        phase('analyse — ' + n(SITES.size) + ' site(s) en cours');
       },
       onProgress(data) {
-        gstatusEl.textContent = 'analyse… ' + n(data.loaded) + ' / ' + n(source.size) + ' octets — ' +
-          n(data.lines) + ' lignes — ' + n(data.sites) + ' sites';
+        report(data, source.size, 'analyse');
       },
     });
 
-    groupJob.stats = stats;
-    gstatusEl.textContent = [
-      'terminé.',
-      'lu : ' + n(stats.bytes) + ' octets (' + mb(stats.bytes) + ') en ' + (stats.ms / 1000).toFixed(2) + ' s',
-      'lignes : ' + n(stats.lines) + ' — avec couple : ' + n(stats.matched) + ' — ignorées : ' + n(stats.skipped),
-      'sites : ' + n(stats.sites) + ' — valeurs : ' + n(stats.kept) + ' (' + mb(stats.bytes) + ')',
-      'cliquez sur un site pour voir ses valeurs.',
-    ].join('\n');
-    renderSites();
+    job.stats = stats;
+    finishScan(stats);
   } catch (err) {
-    if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'annulé.';
-    else gstatusEl.textContent = 'erreur : ' + err.message;
+    barMode('idle');
+    setBar(0);
+    if (err.code === 'CANCELLED' || err.name === 'AbortError') {
+      log('annulé.');
+      phase('annulé');
+    } else {
+      log('erreur : ' + err.message);
+      phase('erreur');
+    }
   } finally {
-    setGroupBusy(false);
+    stopClock();
+    setBusy(false);
+    renderSites();
   }
 }
 
-async function groupRemoteScan(paths, opts) {
-  groupJob = { opts, remote: true, paths, base: 'zach-db', stats: null };
-  gstatusEl.textContent = 'analyse serveur…';
+/** Analyse faite par le serveur (dossier ?dir=…). */
+async function remoteScan(paths, opts) {
+  job = { source: null, opts, base: 'zach-db', remote: true, paths, stats: null, site: null, siteText: '' };
+  phase('analyse côté serveur');
+  barMode('indeterminate');
+  setBar(0.32);
+  text(progressMetaEl, 'le serveur lit le dossier ' + dirParam + ' et renvoie la liste des sites.');
   abortController = new AbortController();
+
   const query = '/api/group?format=json' +
     '&mode=' + encodeURIComponent(opts.mode) +
     '&regex=' + encodeURIComponent(opts.regex) +
     '&dedupe=' + (opts.dedupe ? 1 : 0) +
     '&hosts=' + (opts.hosts ? 1 : 0) +
     '&subdomains=' + (opts.stripSubdomains ? 1 : 0) +
-    (dirParam ? '&dir=' + encodeURIComponent(dirParam) + '&paths=1' : '');
+    '&dir=' + encodeURIComponent(dirParam) + '&paths=1';
   const response = await fetch(query, {
     method: 'POST',
     headers: { 'content-type': 'text/plain;charset=utf-8' },
@@ -713,59 +769,171 @@ async function groupRemoteScan(paths, opts) {
   });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || ('serveur : ' + response.status));
+
   replaceSites(payload.sites);
-  renderSites();
-  gstatusEl.textContent = [
+  setBar(1);
+  barMode('done');
+  setTile('sites', n(payload.total));
+  setTile('values', n(payload.stats.kept));
+  setTile('lines', n(payload.stats.lines || 0));
+  setTile('bytes', human(payload.stats.bytes || 0));
+  text(progressMetaEl, n(payload.total) + ' sites · ' + n(payload.stats.kept) + ' valeurs · analyse serveur');
+  phase('terminé — cliquez sur un site');
+  log([
     'terminé (côté serveur).',
     'sites : ' + n(payload.total) + ' — valeurs : ' + n(payload.stats.kept),
     'cliquez sur un site pour voir ses valeurs.',
-  ].join('\n');
+  ].join('\n'));
+  if (payload.total) reveal(resultsEl);
 }
 
-groupForm.addEventListener('submit', async (event) => {
+/* ============================ écouteurs ============================ */
+
+form.addEventListener('submit', (event) => {
   event.preventDefault();
-  if (groupBusy) return;
-  await groupScan();
+  if (busy) return;
+  scan();
 });
 
-gcancelButton.addEventListener('click', () => {
+form.addEventListener('change', syncMode);
+
+cancelButton.addEventListener('click', () => {
   cancelWorker();
-  gstatusEl.textContent = 'annulation…';
+  phase('annulation…');
+  log('annulation…');
 });
 
-gfilterInput.addEventListener('input', renderSites);
-
-gsaveButton.addEventListener('click', () => {
-  if (!groupJob || !groupJob.siteText) return;
-  const name = (groupJob.site || 'zach-db').replace(/[^\w.-]+/g, '_') + '.txt';
-  download(textBlob(groupJob.siteText), name);
+regexInput.addEventListener('input', () => {
+  if (!(regexInput.value || '').trim()) return;
+  const custom = form.querySelector('input[name="mode"][value="custom"]');
+  if (custom) custom.checked = true;
+  syncMode();
 });
 
-gprevButton.addEventListener('click', () => {
-  gresultEl.hidden = true;
-  gtitreEl.textContent = 'site';
-});
+fileInput.addEventListener('change', describeFiles);
 
-gfileInput.addEventListener('change', () => {
-  const list = gfileInput.files || [];
-  if (list.length) {
-    let size = 0;
-    for (const file of list) size += file.size;
-    metaEl.textContent = n(list.length) + ' fichier(s) · ' + mb(size);
+/* dépôt direct de fichiers sur la zone */
+if (has(drop)) {
+  for (const type of ['dragenter', 'dragover']) {
+    drop.addEventListener(type, (event) => {
+      if (event.preventDefault) event.preventDefault();
+      cls(drop, 'over', true);
+    });
   }
-});
-
-gregexInput.addEventListener('input', () => {
-  if (gregexInput.value.trim()) groupForm.querySelector('input[name="gmode"][value="custom"]').checked = true;
-});
-
-/* ================= démarrage ================= */
-
-metaEl.textContent = dirParam ? 'traitement serveur · ?dir=' + dirParam : 'traitement local · 0 envoi';
-if (dirParam) {
-  filesInput.placeholder = 'un nom de fichier par ligne, lu dans le dossier ' + dirParam;
-  gfilesInput.placeholder = filesInput.placeholder;
+  for (const type of ['dragleave', 'dragend']) {
+    drop.addEventListener(type, () => cls(drop, 'over', false));
+  }
+  drop.addEventListener('drop', (event) => {
+    if (event.preventDefault) event.preventDefault();
+    cls(drop, 'over', false);
+    if (busy) return;
+    const transferred = event.dataTransfer && event.dataTransfer.files;
+    if (transferred && transferred.length) {
+      try {
+        fileInput.files = transferred;
+      } catch {
+        /* certains navigateurs refusent l'affectation : le dépôt natif a déjà rempli le champ */
+      }
+      describeFiles();
+    }
+  });
 }
-if (location.hash === '#sites') showTab('sites', false);
+
+filterInput.addEventListener('input', renderSites);
+
+backButton.addEventListener('click', () => {
+  closeDetail();
+  if (has(sitesEl) && sitesEl.scrollIntoView) sitesEl.scrollIntoView({ block: 'nearest' });
+});
+
+saveButton.addEventListener('click', () => {
+  if (!job || !job.siteText) return;
+  download(textBlob(job.siteText), safeName(job.site || 'zach-db') + '.txt');
+  flash(saveButton, 'Téléchargé');
+});
+
+copyButton.addEventListener('click', async () => {
+  const value = job && job.siteText;
+  if (!value) return;
+  const clipboard = globalThis.navigator && navigator.clipboard;
+  if (clipboard && clipboard.writeText) {
+    try {
+      await clipboard.writeText(value);
+      flash(copyButton, 'Copié');
+      return;
+    } catch {
+      /* on tente la méthode de secours */
+    }
+  }
+  flash(copyButton, legacyCopy(value) ? 'Copié' : 'Copie impossible');
+});
+
+function legacyCopy(value) {
+  try {
+    const area = document.createElement('textarea');
+    area.value = value;
+    if (area.style) {
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+    }
+    document.body.appendChild(area);
+    if (area.focus) area.focus();
+    if (area.select) area.select();
+    const ok = typeof document.execCommand === 'function' && document.execCommand('copy');
+    area.remove();
+    return !!ok;
+  } catch {
+    return false;
+  }
+}
+
+exportButton.addEventListener('click', () => {
+  if (!SITES.size) return;
+  const rows = [...SITES.values()].sort(byWeight)
+    .map((entry) => entry.site + '\t' + entry.count + '\t' + entry.bytes);
+  download(textBlob(rows.join('\n') + '\n'), 'zach-db-sites-' + stamp() + '.tsv');
+  flash(exportButton, 'Liste exportée');
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && has(resultEl) && !resultEl.hidden) closeDetail();
+});
+
+/* surbrillance de la section visible dans la navigation */
+function initSpy() {
+  const nav = el('nav');
+  if (typeof IntersectionObserver !== 'function' || !nav || !nav.querySelectorAll) return;
+  const pairs = [];
+  for (const link of Array.from(nav.querySelectorAll('a[data-spy]'))) {
+    const id = link.dataset ? link.dataset.spy : link.getAttribute('data-spy');
+    const section = document.getElementById(id);
+    if (section) pairs.push([section, link]);
+  }
+  if (!pairs.length) return;
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const pair = pairs.find((item) => item[0] === entry.target);
+      if (!pair) continue;
+      for (const item of pairs) cls(item[1], 'active', item === pair);
+    }
+  }, { rootMargin: '-70px 0px -60% 0px', threshold: 0 });
+  for (const pair of pairs) observer.observe(pair[0]);
+}
+
+/* ============================ démarrage ============================ */
+
+if (dirParam) {
+  if (has(pathsBox)) pathsBox.hidden = false;
+  pathsInput.placeholder = 'un nom de fichier par ligne, lu dans le dossier ' + dirParam;
+  text(metaEl, 'serveur · ?dir=' + dirParam);
+}
+
+syncMode();
+describeFiles();
 renderSites();
+initSpy();
 ensureWorker();
+log(dirParam
+  ? 'prêt — lecture du dossier serveur ' + dirParam + '.'
+  : 'prêt — déposez un .txt : il est lu et trié ici, aucun octet n’est envoyé.');

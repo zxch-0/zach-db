@@ -1,56 +1,77 @@
 # zach-db
 
-Extraction ultra-rapide de morceaux `xxxx:xxxx` depuis de gros fichiers texte,
-et tri de ces lignes par site.
-Site volontairement nu : noir et blanc, aucune police externe, aucun effet,
-aucune image, aucun framework, aucune dépendance npm.
-
-**Onglet 1 — Extraire**
-
-```
-entrée :  [https://www.roblox.com/tr/CreateAccount:Thou_miriba:N2Z6PQXg4XLnTSi](...)1111
-sortie :  Thou_miriba:N2Z6PQXg4XLnTSi
-```
-
-**Onglet 2 — Trier par site**
+Tri par site de gros fichiers texte : chaque ligne
+`https://site/…:user:pass` est rangée par site, et sa valeur `user:pass`
+extraite au passage.
+Le site est noir et blanc, sobre : aucune police externe, aucune image, aucun
+emoji, aucun framework, aucune dépendance npm — tout le décor est dessiné en CSS.
 
 ```
 entrée :  https://www.roblox.com/x:Thou_miriba:N2Z6PQXg4XLnTSi
           http://www.netflix.com/y:user1:pass1
           https://account.roblox.com/z:user2:pass2
 
-liste :   roblox.com    2 valeurs
-          netflix.com   1 valeur
+liste :   01  roblox.com    ▮▮▮▮▮▮▮▮▮▮   2 valeurs   40 o
+          02  netflix.com   ▮▮▮          1 valeur    12 o
 
 clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
                         user2:pass2
 ```
 
+Le tri par site **extrait déjà** les couples `xxxx:xxxx` : la page ne propose
+donc plus d'écran « Extraire » séparé. L'extraction simple reste disponible dans
+l'API (`/api/extract`) et dans la CLI (`node cli.js fichier.txt -o resultat.txt`).
+
+## La page
+
+Quatre étapes, de haut en bas :
+
+1. **Source** — un ou plusieurs `.txt`, au clic ou par glisser-déposer. Avec
+   `?dir=/dossier` dans l'URL, une liste de noms de fichiers est lue par le
+   serveur.
+2. **Réglages** — valeur gardée sur chaque ligne (dernier couple, premier, le
+   plus long, tous, regex perso), regroupement des sous-domaines, doublons,
+   `domaine.tld:port`.
+3. **Suivi** — une **barre de progression** qui suit l'avancement réel du
+   traitement des lignes : le worker annonce les octets consommés tous les
+   ~120 ms, donc `octets lus / taille du fichier` est exactement la part des
+   lignes déjà traitées. Autour de la barre : le pourcentage, le détail
+   (octets, lignes, valeurs, sites, débit, temps restant estimé) et six
+   compteurs en continu. Une barre fine est aussi collée en haut de l'écran.
+4. **Résultats** — la liste des sites (rang, nom, jauge proportionnelle au poids
+   du site, nombre de valeurs, taille), filtrable et exportable en TSV. Un clic
+   ouvre le détail du site, en pleine largeur ou côte à côte avec la liste selon
+   l'écran : valeurs affichées au fil de l'eau, téléchargement du `.txt`, copie
+   de l'aperçu.
+
 ## Comment ça marche
 
-1. Le fichier est découpé en flux dans un **Web Worker** : l'onglet reste fluide,
-   rien ne transite par le réseau.
-2. Une passe **comptage** mesure la taille de la sortie sans la stocker.
-3. Une passe **collecte** écrit le résultat et le télécharge.
-   Si la sortie dépasse 32 Mo, elle est produite en plusieurs fichiers
-   (`-part001.txt`, `-part002.txt`, …) : la mémoire du navigateur reste bornée,
-   et le résultat reste **exact** (aucune ligne perdue).
+1. Le fichier est lu en flux dans un **Web Worker** : la page reste fluide, rien
+   ne transite par le réseau, et l'avancement est annoncé en continu.
+2. Une passe d'**analyse** range chaque ligne par site et ne garde que des
+   compteurs (nom, valeurs, octets) : la mémoire reste bornée, quelle que soit la
+   taille du fichier.
+3. Une passe **ciblée** relit le fichier et n'écrit que les valeurs du site
+   cliqué, affichées au fil de l'eau puis téléchargeables.
 
-L'onglet « Trier par site » utilise la même mécanique : une passe d'analyse (qui
-ne garde que des compteurs par site), puis une passe ciblée par site, écrite au
-fil de l'eau.
+L'extraction simple (API, CLI) reprend la même mécanique en deux temps : une
+passe **comptage** mesure la sortie sans la stocker, puis une passe **collecte**
+l'écrit. Au-delà de 32 Mo, la sortie est produite en plusieurs fichiers
+(`-part001.txt`, `-part002.txt`, …) : la mémoire reste bornée et le résultat
+**exact** (aucune ligne perdue).
 
 Vitesse mesurée : **~230 Mo/s** sans dédoublonnage (~100 Mo/s avec), et
 **~70 Mo/s** pour le tri par site (200 sites sur 150 Mo). Le parseur travaille
 ligne par ligne, sans allocation inutile.
 
-## Trier par site (onglet 2)
+## Trier par site
 
 Trois temps, tous dans le navigateur :
 
 1. **Analyse** du fichier : un passage complet range chaque ligne par site
-   (`roblox.com`, `netflix.com`, …) et compte les valeurs. La liste des sites
-   s'affiche au fur et à mesure, triée du plus gros au plus petit.
+   (`roblox.com`, `netflix.com`, …) et compte les valeurs. La barre de
+   progression avance, la liste des sites s'affiche au fur et à mesure, triée du
+   plus gros au plus petit.
 2. **Clic sur un site** : un second passage lit le fichier et n'écrit que les
    valeurs de ce site, affichées en direct.
 3. **Téléchargement** : un `.txt` par site (`roblox.com.txt`), ou la liste
@@ -66,9 +87,9 @@ Détail des sites :
 - une ligne sans URL va dans le groupe `(sans site)` ;
 - les lignes sans couple `xxxx:xxxx` sont simplement comptées comme « ignorées ».
 
-Les modes de l'onglet 1 s'appliquent à l'identique (dernier couple, premier,
-le plus long, tous, regex perso), plus le dédoublonnage **par site** et la
-case « garder les `domaine.tld:port` ».
+Les modes d'extraction s'appliquent à l'identique (dernier couple, premier, le
+plus long, tous, regex perso), plus le dédoublonnage **par site** et la case
+« garder les `domaine.tld:port` ».
 
 ## Les modes
 
@@ -87,7 +108,7 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
 ```bash
 npm start            # http://localhost:3000
-npm test             # 55 tests (moteurs, workers, serveur HTTP, interface)
+npm test             # 57 tests (moteurs, workers, serveur HTTP, interface)
 npm run bench        # mesure sur un fichier généré
 ```
 
@@ -190,10 +211,10 @@ CLI) : un seul code, donc un seul comportement.
 ```
 public/lib/parse.js   moteur d'extraction (partagé navigateur / serveur / CLI)
 public/lib/group.js   moteur de tri par site (mêmes briques, mêmes règles)
-public/index.html     page unique, deux onglets
-public/styles.css     noir et blanc, ~150 lignes
-public/app.js         interface (analyse, listes, téléchargements)
-public/worker.js      Web Worker : lecture en flux du fichier
+public/index.html     page unique : source, réglages, suivi, résultats
+public/styles.css     noir et blanc sobre, tout le décor est en CSS
+public/app.js         interface (barre de progression, listes, détail, exports)
+public/worker.js      Web Worker : lecture en flux + annonces d'avancement
 server.js             serveur HTTP + API (aucune dépendance)
 cli.js                ligne de commande
 bench.js              benchmark
