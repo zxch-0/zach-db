@@ -3,129 +3,271 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>zach-db — tri par site</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16'/><text x='8' y='12' font-size='11' text-anchor='middle' fill='%23fff' font-family='monospace'>z</text></svg>">
+<meta name="description" content="Tri par site de gros fichiers .txt et extraction des couples xxxx:xxxx. Tout se passe dans le navigateur, rien n’est envoyé.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000'/><circle cx='15' cy='11' r='3.1' fill='%23fff'/><circle cx='15' cy='21' r='3.1' fill='%23fff'/><rect x='20.5' y='8' width='5' height='16' rx='2.5' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="/styles.css">
+<script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
 
-<header>
-  <div class="brand">
-    <span class="mark" aria-hidden="true">z</span>
-    <div class="brand-text">
-      <h1>zach-db</h1>
-      <p class="tagline">Tri par site de gros fichiers <code>.txt</code>, avec extraction des couples <code>xxxx:xxxx</code>.</p>
-    </div>
+<a class="skip" href="#traitement">aller au traitement</a>
+
+<!-- ==================== décor ambiant (non lu) ==================== -->
+<div class="ambient" aria-hidden="true">
+  <span class="ambient-grid"></span>
+  <span class="ambient-glow"></span>
+  <span class="ambient-glow ambient-glow--2"></span>
+  <span class="ambient-noise"></span>
+</div>
+<span class="scroll-line" aria-hidden="true"><i class="scroll-line-fill"></i></span>
+
+<!-- ==================== en-tête ==================== -->
+<header class="site-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="#top">
+      <span class="mark" aria-hidden="true">
+        <span class="mark-glyph">z</span>
+        <span class="mark-dot"></span>
+      </span>
+      <span class="brand-text">
+        <strong>zach-db</strong>
+        <span class="brand-sub">tri par site de gros <code>.txt</code></span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="sections">
+      <a href="#traitement">traitement</a>
+      <a href="#sites">sites</a>
+      <a href="#api">api</a>
+      <a href="#cli">cli</a>
+    </nav>
+
+    <p class="local-note"><span class="pulse" aria-hidden="true"></span>traitement local — le fichier n’est jamais envoyé</p>
   </div>
-  <p class="local-note">Traitement local — le fichier n’est jamais envoyé</p>
 </header>
 
-<main>
+<main id="top">
 
-<form id="groupForm">
+  <!-- ==================== accroche ==================== -->
+  <section class="hero">
+    <div class="wrap hero-grid">
 
-  <!-- ============ 01 — source ============ -->
-  <section class="panel">
-    <h2 class="panel-title"><span class="num">01</span> source</h2>
+      <div class="hero-copy">
+        <p class="eyebrow"><span>web worker</span><span>flux ligne à ligne</span><span>zéro dépendance</span></p>
 
-    <input type="file" id="gfile" accept=".txt,text/plain" multiple>
-    <textarea id="gfiles" rows="3" spellcheck="false"
-      placeholder="ou collez une liste de fichiers, un par ligne (dossier serveur avec ?dir=...)"></textarea>
-  </section>
+        <h1>Tri par site,<br><span class="shimmer">ligne par ligne.</span></h1>
 
-  <!-- ============ 02 — extraction ============ -->
-  <section class="panel">
-    <h2 class="panel-title"><span class="num">02</span> extraction</h2>
+        <p class="lead">
+          Déposez un ou plusieurs <code>.txt</code> : chaque ligne est rangée sous son site
+          (<code>roblox.com</code>, <code>netflix.com</code>…) et les couples <code>xxxx:xxxx</code>
+          en sont extraits. Le fichier ne quitte jamais le navigateur.
+        </p>
 
-    <div class="grid-2">
-      <fieldset>
-        <legend>ce qu’on garde sur chaque ligne</legend>
-        <label><input type="radio" name="gmode" value="last" checked> dernier <code>a:b</code> de la ligne</label>
-        <label><input type="radio" name="gmode" value="first"> premier <code>a:b</code> de la ligne</label>
-        <label><input type="radio" name="gmode" value="longest"> le plus long (pass le plus long)</label>
-        <label><input type="radio" name="gmode" value="all"> tous</label>
-        <label><input type="radio" name="gmode" value="custom"> regex perso</label>
-        <input type="text" id="gregex" spellcheck="false"
-          placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
-      </fieldset>
+        <p class="cta">
+          <a class="btn btn-solid" href="#traitement"><span>Choisir un fichier</span></a>
+          <a class="btn" href="#api"><span>Voir l’API</span></a>
+        </p>
 
-      <div class="options-side">
-        <p class="side-title">regroupement</p>
-        <label class="check"><input type="checkbox" id="gsub" checked> regrouper les sous-domaines
-          (<code>www.roblox.com</code> et <code>account.roblox.com</code> → <code>roblox.com</code>)</label>
-        <label class="check"><input type="checkbox" id="gdedupe"> supprimer les doublons dans chaque site</label>
-        <label class="check"><input type="checkbox" id="ghosts"> garder les <code>domaine.tld:port</code> des URL (ignorés par défaut)</label>
+        <dl class="specs">
+          <div><dt>débit mesuré</dt><dd><b data-count="230">230</b> Mo/s</dd></div>
+          <div><dt>tests</dt><dd><b data-count="51">51</b></dd></div>
+          <div><dt>dépendances</dt><dd><b data-count="0">0</b></dd></div>
+          <div><dt>envoi réseau</dt><dd><b data-count="0">0</b> octet</dd></div>
+        </dl>
       </div>
-    </div>
 
-    <div class="buttons">
-      <button type="submit" id="gscan">Trier par site</button>
-      <button type="button" id="gcancel" disabled>Annuler</button>
-    </div>
+      <aside class="demo" aria-hidden="true">
+        <div class="demo-bar">
+          <span class="leds"><i></i><i></i><i></i></span>
+          <span class="demo-title">démonstration</span>
+          <span class="chip-tag">local</span>
+        </div>
 
-    <div class="progress" id="gprogress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-      aria-valuenow="0" aria-label="avancement du traitement" hidden>
-      <div class="progress-track"><div class="progress-fill" id="gbar"></div></div>
-      <span class="progress-pct" id="gpct">0 lignes · 0 %</span>
-    </div>
+        <div class="demo-col">
+          <p class="demo-label">entrée.txt</p>
+          <pre class="demo-pre" id="demoIn">https://www.roblox.com/x:Thou_miriba:N2Z6PQXg4XLnTSi
+http://www.netflix.com/y:user1:pass1
+https://account.roblox.com/z:user2:pass2</pre>
+        </div>
 
-    <p id="gstatus" role="status">prêt.</p>
+        <div class="demo-col demo-out">
+          <p class="demo-label">sites trouvés</p>
+          <ul class="demo-list">
+            <li style="--d:0.05s"><span>roblox.com</span><b>2</b></li>
+            <li style="--d:0.18s"><span>netflix.com</span><b>1</b></li>
+          </ul>
+          <p class="demo-foot">clic sur <b>roblox.com</b> → <code>Thou_miriba:N2Z6PQXg4XLnTSi</code></p>
+        </div>
+      </aside>
+
+    </div>
   </section>
 
-</form>
-
-<!-- ============ 03 — sites trouvés ============ -->
-<section class="panel" id="glistBox">
-  <h2 class="panel-title"><span class="num">03</span> sites trouvés</h2>
-
-  <div class="stats">
-    <div class="stat"><strong id="statSites">0</strong><span>sites</span></div>
-    <div class="stat"><strong id="statValues">0</strong><span>valeurs</span></div>
-    <div class="stat"><strong id="statLines">0</strong><span>lignes lues</span></div>
-    <div class="stat"><strong id="statBytes">0.0 Mo</strong><span>octets lus</span></div>
-  </div>
-
-  <input type="search" id="gfilter" placeholder="filtrer (ex. roblox)" autocomplete="off">
-  <p id="gsummary">—</p>
-  <ul id="gsites" class="sites"></ul>
-</section>
-
-<!-- ============ 04 — valeurs d’un site ============ -->
-<section id="gresult" hidden>
-  <div class="result-head">
-    <h2 id="gtitre">site</h2>
-    <div class="buttons">
-      <button type="button" id="gsave" disabled>Télécharger .txt</button>
-      <button type="button" id="gprev">Revenir à la liste</button>
+  <!-- ==================== bandeau défilant ==================== -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span class="marquee-group">
+        <i>tri par site</i><i>xxxx:xxxx</i><i>230 Mo/s</i><i>web worker</i><i>flux ligne à ligne</i>
+        <i>0 envoi réseau</i><i>sans dépendance</i><i>.txt en sortie</i><i>regex perso</i><i>dédoublonnage</i>
+      </span>
+      <span class="marquee-group">
+        <i>tri par site</i><i>xxxx:xxxx</i><i>230 Mo/s</i><i>web worker</i><i>flux ligne à ligne</i>
+        <i>0 envoi réseau</i><i>sans dépendance</i><i>.txt en sortie</i><i>regex perso</i><i>dédoublonnage</i>
+      </span>
     </div>
   </div>
-  <pre id="gtext"></pre>
-  <p id="gwarn" class="note" hidden></p>
-</section>
 
-<details>
-  <summary>API serveur (curl) — liste des sites ou un seul site</summary>
-<pre># la liste des sites, avec compteurs
-curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group'
-curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group?format=tsv'
+  <!-- ==================== traitement ==================== -->
+  <section class="stage" id="traitement">
 
-# toutes les valeurs d'un site
-curl -X POST --data-binary @fichier.txt \
+    <form id="groupForm">
+
+      <!-- ---------- 01 — source ---------- -->
+      <article class="panel card reveal">
+        <h2 class="panel-title"><span class="num">01</span><span class="panel-name">source</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">le fichier reste sur votre machine</span></h2>
+
+        <div class="drop">
+          <input type="file" id="gfile" accept=".txt,text/plain" multiple>
+          <p class="drop-hint"><span class="drop-key">glisser-déposer</span> ou cliquer pour parcourir — plusieurs <code>.txt</code> acceptés</p>
+        </div>
+
+        <textarea id="gfiles" rows="3" spellcheck="false"
+          placeholder="ou collez une liste de fichiers, un par ligne (dossier serveur avec ?dir=...)"></textarea>
+      </article>
+
+      <!-- ---------- 02 — extraction ---------- -->
+      <article class="panel card reveal">
+        <h2 class="panel-title"><span class="num">02</span><span class="panel-name">extraction</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">ce qu’on garde sur chaque ligne</span></h2>
+
+        <div class="grid-2">
+          <fieldset>
+            <legend>mode</legend>
+            <label class="opt"><input type="radio" name="gmode" value="last" checked><span class="opt-text">dernier <code>a:b</code> de la ligne<em>par défaut</em></span></label>
+            <label class="opt"><input type="radio" name="gmode" value="first"><span class="opt-text">premier <code>a:b</code> de la ligne</span></label>
+            <label class="opt"><input type="radio" name="gmode" value="longest"><span class="opt-text">le plus long</span></label>
+            <label class="opt"><input type="radio" name="gmode" value="all"><span class="opt-text">tous les couples</span></label>
+            <label class="opt"><input type="radio" name="gmode" value="custom"><span class="opt-text">regex perso</span></label>
+            <input type="text" id="gregex" spellcheck="false"
+              placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
+          </fieldset>
+
+          <div class="options-side">
+            <p class="side-title">regroupement</p>
+
+            <label class="check">
+              <input type="checkbox" id="gsub" checked>
+              <span class="check-text">regrouper les sous-domaines
+                <em><code>www.roblox.com</code> et <code>account.roblox.com</code> → <code>roblox.com</code></em>
+              </span>
+            </label>
+
+            <label class="check">
+              <input type="checkbox" id="gdedupe">
+              <span class="check-text">supprimer les doublons dans chaque site</span>
+            </label>
+
+            <label class="check">
+              <input type="checkbox" id="ghosts">
+              <span class="check-text">garder les <code>domaine.tld:port</code> des URL
+                <em>ignorés par défaut : c’est un port, pas un couple</em>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="buttons">
+          <button type="submit" id="gscan"><span>Trier par site</span></button>
+          <button type="button" id="gcancel" disabled><span>Annuler</span></button>
+        </div>
+
+        <div class="progress" id="gprogress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+          aria-valuenow="0" aria-label="avancement du traitement" hidden>
+          <div class="progress-track"><div class="progress-fill" id="gbar"></div></div>
+          <span class="progress-pct" id="gpct">0 lignes · 0 %</span>
+        </div>
+
+        <p id="gstatus" class="status" role="status">prêt.</p>
+      </article>
+
+    </form>
+  </section>
+
+  <!-- ==================== sites trouvés ==================== -->
+  <section class="stage" id="sites">
+    <article class="panel card reveal" id="glistBox">
+      <h2 class="panel-title"><span class="num">03</span><span class="panel-name">sites trouvés</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">cliquez pour ouvrir un site</span></h2>
+
+      <div class="stats">
+        <div class="stat"><strong id="statSites">0</strong><span>sites</span></div>
+        <div class="stat"><strong id="statValues">0</strong><span>valeurs</span></div>
+        <div class="stat"><strong id="statLines">0</strong><span>lignes lues</span></div>
+        <div class="stat"><strong id="statBytes">0.0 Mo</strong><span>octets lus</span></div>
+      </div>
+
+      <div class="filter">
+        <span class="filter-mark" aria-hidden="true">/</span>
+        <input type="search" id="gfilter" placeholder="filtrer les sites (ex. roblox)" autocomplete="off">
+      </div>
+
+      <p id="gsummary">—</p>
+      <ul id="gsites" class="sites"></ul>
+    </article>
+  </section>
+
+  <!-- ==================== valeurs d’un site ==================== -->
+  <section class="stage">
+    <article id="gresult" class="result card" hidden>
+      <div class="result-head">
+        <h2 id="gtitre">site</h2>
+        <div class="buttons">
+          <button type="button" id="gsave" disabled><span>Télécharger .txt</span></button>
+          <button type="button" id="gprev"><span>Revenir à la liste</span></button>
+        </div>
+      </div>
+      <pre id="gtext"></pre>
+      <p id="gwarn" class="note" hidden></p>
+    </article>
+  </section>
+
+  <!-- ==================== api & cli ==================== -->
+  <section class="stage docs">
+
+    <details class="doc card reveal" id="api">
+      <summary><span class="doc-name">API serveur</span><span class="doc-sub">curl — liste des sites ou un seul site</span><span class="doc-mark" aria-hidden="true"></span></summary>
+      <div class="code-card">
+        <div class="code-head"><span>liste des sites, avec compteurs</span><button type="button" class="copy" data-copy>copier</button></div>
+<pre>curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group'
+curl -X POST --data-binary @fichier.txt 'https://VOTRE-APP.onrender.com/api/group?format=tsv'</pre>
+      </div>
+      <div class="code-card">
+        <div class="code-head"><span>toutes les valeurs d’un site</span><button type="button" class="copy" data-copy>copier</button></div>
+<pre>curl -X POST --data-binary @fichier.txt \
   'https://VOTRE-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt</pre>
-</details>
+      </div>
+    </details>
 
-<details>
-  <summary>CLI : liste, un site, ou un fichier par site</summary>
+    <details class="doc card reveal" id="cli">
+      <summary><span class="doc-name">CLI</span><span class="doc-sub">liste, un site, ou un fichier par site</span><span class="doc-mark" aria-hidden="true"></span></summary>
+      <div class="code-card">
+        <div class="code-head"><span>tri par site en ligne de commande</span><button type="button" class="copy" data-copy>copier</button></div>
 <pre>node cli.js gros.txt --group                       # site + compteurs
 node cli.js gros.txt --group --site=roblox.com -o roblox.txt
 node cli.js gros.txt --group --split=dossier/      # un .txt par site</pre>
-</details>
+      </div>
+    </details>
+
+  </section>
 
 </main>
 
-<footer>
-  <span>zach-db</span>
-  <span id="meta"></span>
+<footer class="site-foot">
+  <div class="wrap foot-inner">
+    <p class="foot-brand" aria-hidden="true">zach-db</p>
+    <p class="foot-line"><span>web worker + flux ligne à ligne</span><span id="meta"></span></p>
+    <p class="foot-line"><span>noir et blanc, aucun emoji, aucune police externe</span><span>MIT</span></p>
+  </div>
 </footer>
 
 <script src="/app.js" type="module"></script>

@@ -150,6 +150,54 @@ test('app.js et index.html sont cohérents', () => {
   }
 });
 
+test('aucun emoji dans le site', () => {
+  // pictogrammes, symboles et drapeaux emoji. Les signes typographiques du
+  // projet (→, ·, —, « ») ne sont pas concernés : ils s’affichent en noir.
+  const emoji = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}\u{FE0F}\u{1F1E6}-\u{1F1FF}\u{20E3}]/u;
+  const files = [
+    'public/index.html',
+    'public/styles.css',
+    'public/app.js',
+    'public/worker.js',
+    'public/lib/parse.js',
+    'public/lib/group.js',
+  ];
+  for (const file of files) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    const found = text.match(emoji);
+    assert.equal(found, null, file + ' contient un pictogramme : ' + found);
+  }
+});
+
+test('la décoration reste sobre, accessible et sans ressource distante', () => {
+  const css = fs.readFileSync(path.join(ROOT, 'public/styles.css'), 'utf8');
+
+  // le décor est bien dans la page (grille, halos, bandeau, fil de lecture)
+  for (const marker of ['ambient-grid', 'ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
+    assert.ok(html.includes(marker), 'décor absent de index.html : ' + marker);
+  }
+
+  // les animations se coupent quand l’utilisateur le demande
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, 'mouvement réduit géré');
+  // le thème suit le réglage du système, sans thème clair imposé
+  assert.match(css, /@media \(prefers-color-scheme: dark\)/, 'thème sombre automatique');
+  // aucune image ni police distante : le décor est fait de CSS
+  // (les data URI contiennent eux-mêmes un url(%23n) : on les retire avant)
+  const withoutData = css.replace(/url\(\s*(["'])data:[\s\S]*?\1\s*\)/g, 'URL');
+  for (const match of withoutData.matchAll(/url\(\s*["']?(?!#)[^)]*\)/g)) {
+    assert.fail('ressource externe dans styles.css : ' + match[0]);
+  }
+  for (const match of css.matchAll(/@import|@font-face/g)) {
+    assert.fail('import externe dans styles.css : ' + match[0]);
+  }
+  // toute animation utilisée doit avoir ses @keyframes
+  const declared = new Set([...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]));
+  for (const match of css.matchAll(/animation(?:-name)?:\s*([\w-]+)/g)) {
+    if (match[1] === 'none') continue;
+    assert.ok(declared.has(match[1]), 'animation sans @keyframes : ' + match[1]);
+  }
+});
+
 test.after(() => {
   URL.createObjectURL = realCreateObjectURL;
 });
