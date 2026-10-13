@@ -2,9 +2,13 @@
 
 Extraction ultra-rapide de morceaux `xxxx:xxxx` depuis de gros fichiers texte,
 et tri de ces lignes par site.
-Site sobre et moderne : noir et blanc, aucun emoji, aucune police externe,
-aucun framework, aucune dépendance npm. Une barre de progression suit
-l'avancement du traitement, ligne à ligne.
+Site moderne et sobre : noir et blanc, aucun emoji, aucune police externe,
+aucun framework, aucune dépendance npm — le décor (grille en pointillés,
+halos lents, bandeau défilant, halos qui suivent le curseur, fil de lecture,
+apparitions au défilement) est fait de CSS et d'un peu de code, jamais
+d'images. Thème sombre automatique, tout s'arrête si le système demande
+moins de mouvement.
+Une barre de progression suit l'avancement du traitement, ligne à ligne.
 
 **Vue unique — Trier par site**
 
@@ -32,6 +36,8 @@ clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
 
 Le moteur d'extraction partagé (navigateur, serveur, CLI) reste dans
 `public/lib/parse.js` ; le tri par site dans `public/lib/group.js`.
+Le décor, lui, est facultatif : sans `IntersectionObserver` ni
+`requestAnimationFrame`, la page s'affiche à l'identique, sans animation.
 
 Vitesse mesurée : **~230 Mo/s** sans dédoublonnage (~100 Mo/s avec), et
 **~70 Mo/s** pour le tri par site (200 sites sur 150 Mo). Le parseur travaille
@@ -80,9 +86,15 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
 ```bash
 npm start            # http://localhost:3000
-npm test             # 51 tests (moteurs, workers, serveur HTTP, interface)
+npm test             # 53 tests (moteurs, workers, serveur HTTP, interface)
 npm run bench        # mesure sur un fichier généré
 ```
+
+Tout est dans `public/` : en-tête collant, section 01 à 03, puis les blocs
+`API` et `CLI` dépliables (avec bouton « copier »). On peut aussi glisser un
+`.txt` directement sur la zone de dépôt. Aucune requête ne part : les seules
+ressources chargées sont `/styles.css`, `/app.js`, `/worker.js` et les moteurs
+de `public/lib/`.
 
 ## Ligne de commande (les plus gros fichiers)
 
@@ -183,8 +195,8 @@ CLI) : un seul code, donc un seul comportement.
 ```
 public/lib/parse.js   moteur d'extraction (partagé navigateur / serveur / CLI)
 public/lib/group.js   moteur de tri par site (mêmes briques, mêmes règles)
-public/index.html     page unique : tri par site, barre de progression
-public/styles.css     noir et blanc, sobre et moderne
+public/index.html     page unique : tri par site, barre de progression, décor
+public/styles.css     noir et blanc, sobre : cartes, halos, bandeau, animations
 public/app.js         interface (analyse, listes, téléchargements)
 public/worker.js      Web Worker : lecture en flux du fichier
 server.js             serveur HTTP + API (aucune dépendance)
@@ -194,7 +206,7 @@ test/parse.test.js    moteur d'extraction
 test/group.test.js    moteur de tri par site
 test/worker.test.js   worker du navigateur
 test/site.test.js     serveur HTTP + API
-test/ui.test.js       test de fumée de l'interface
+test/ui.test.js       interface : fumée, cohérence, aucun emoji, décor CSS
 Dockerfile, render.yaml
 ```
 
