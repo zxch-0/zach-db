@@ -141,13 +141,22 @@ test('app.js et index.html sont cohérents', () => {
   const groupModes = [...html.matchAll(/name="gmode" value="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(groupModes, ['last', 'first', 'longest', 'all', 'custom']);
   assert.ok(!/name="mode"/.test(html), 'plus de modes pour l’extraction seule');
-  // aucune ressource externe : le site reste autonome et rapide
-  for (const match of html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)) {
+  // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
+  for (const match of html.matchAll(/<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^\"]+)"/gi)) {
     assert.fail('ressource externe chargée par la page : ' + match[1]);
   }
   for (const match of app.matchAll(/import\s+[^;]*from\s+['"]([^'"]+)['"]/g)) {
     assert.ok(match[1].startsWith('./') || match[1].startsWith('/'), 'import externe : ' + match[1]);
   }
+});
+
+test('le bouton Discord ouvre le serveur communautaire en nouvel onglet', () => {
+  const link = html.match(/<a\b(?=[^>]*\bclass="discord-link")([^>]*)>/);
+  assert.ok(link, 'bouton Discord absent de l’en-tête');
+  assert.match(link[1], /\bhref="https:\/\/discord\.gg\/uKZAZS8kY9"/);
+  assert.match(link[1], /\btarget="_blank"/);
+  assert.match(link[1], /\brel="noopener noreferrer"/);
+  assert.match(html, /<svg class="discord-logo"[^>]*aria-hidden="true"/);
 });
 
 test('aucun emoji dans le site', () => {
