@@ -54,6 +54,9 @@ function isHostLike(host) {
  * les ports et les IP (IPv4).
  */
 export function siteFromLine(line) {
+  // Ne considérer que les lignes commençant par http:// ou https://
+  if (!/^https?:\/\//i.test(line)) return null;
+
   let start = -1;
   const scheme = line.indexOf('://');
   if (scheme !== -1) {
@@ -142,7 +145,11 @@ export function createGrouper(options = {}) {
     stats.matched++;
 
     const host = siteFromLine(line);
-    const site = host === null ? noSiteLabel : normalizeSite(host, opts);
+    if (host === null) {
+      if (line.length !== 0) stats.skipped++; // lignes sans http:// ou https://
+      return null;
+    }
+    const site = normalizeSite(host, opts);
     if (onlySite !== null && site !== onlySite) return null;
 
     const entry = entryFor(site);
