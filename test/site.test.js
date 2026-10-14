@@ -34,6 +34,7 @@ test('le site et ses ressources sont servis', async () => {
   assert.match(page.headers.get('content-type'), /text\/html/);
   const html = await page.text();
   assert.match(html, /zach-db/);
+  assert.match(html, /<html lang="en">/);
 
   for (const [file, type] of [
     ['/styles.css', /text\/css/],
@@ -102,17 +103,17 @@ test('api : lecture d’un dossier du serveur', async () => {
 
   const sub = await fetch(base + '/api/extract?dir=/&paths=1', { method: 'POST', body: 'sub/x.txt' });
   assert.equal(sub.status, 400);
-  assert.match((await sub.json()).error, /invalide/);
+  assert.match((await sub.json()).error, /Invalid filename/);
 });
 
 test('api : erreurs propres', async () => {
   const mode = await fetch(base + '/api/extract?mode=nope', { method: 'POST', body: 'a:b' });
   assert.equal(mode.status, 400);
-  assert.match((await mode.json()).error, /mode inconnu/);
+  assert.match((await mode.json()).error, /Unknown mode/);
 
   const traversal = await fetch(base + '/api/extract?dir=/../');
   assert.equal(traversal.status, 400);
-  assert.match((await traversal.json()).error, /hors du dossier/);
+  assert.match((await traversal.json()).error, /outside the allowed directory/);
 
   const method = await fetch(base + '/api/extract');
   assert.equal(method.status, 405);
@@ -203,7 +204,7 @@ test('api group : dossier du serveur et erreurs', async () => {
 
   const bad = await fetch(base + '/api/group?dir=/../');
   assert.equal(bad.status, 400);
-  assert.match((await bad.json()).error, /hors du dossier/);
+  assert.match((await bad.json()).error, /outside the allowed directory/);
 });
 
 test('api group : gros corps en flux', async () => {

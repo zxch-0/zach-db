@@ -656,7 +656,7 @@ h1 {
 .stage:last-of-type { padding-bottom: clamp(30px, 5vw, 60px); }
 
 /* les ancres s’arrêtent sous l’en-tête collant */
-:is(.stage, .doc, #traitement, #sites, #api, #cli) { scroll-margin-top: 86px; }
+:is(.stage, .doc, #process, #sites, #api, #cli) { scroll-margin-top: 86px; }
 
 .stage > :first-child, .stage > form > :first-child { margin-top: 0; }
 

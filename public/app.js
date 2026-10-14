@@ -14,9 +14,11 @@ const PREVIEW_CHARS = 48 * 1024;
 const LIST_LIMIT = 1000; // lignes de sites affichées d'un coup
 
 const el = (id) => document.getElementById(id);
-const fmt = new Intl.NumberFormat('fr-FR');
+const fmt = new Intl.NumberFormat('en-US');
 const n = (value) => fmt.format(value);
-const mb = (bytes) => (bytes / 1048576).toFixed(1) + ' Mo';
+const plural = (count, singular, pluralForm = singular + 's') =>
+  n(count) + ' ' + (count === 1 ? singular : pluralForm);
+const mb = (bytes) => (bytes / 1048576).toFixed(1) + ' MB';
 const dirParam = new URL(location.href).searchParams.get('dir');
 
 let worker = null;
@@ -29,7 +31,7 @@ function ensureWorker() {
   if (worker) return worker;
   worker = new Worker('/worker.js', { type: 'module' });
   worker.onerror = (event) => {
-    el('gstatus').textContent = 'erreur worker : ' + (event.message || 'inconnue');
+    el('gstatus').textContent = 'Worker error: ' + (event.message || 'unknown error');
   };
   return worker;
 }
@@ -55,8 +57,8 @@ function runWorker(message, handlers = {}) {
       }
       worker.removeEventListener('message', onMessage);
       if (data.type === 'done') resolve(data);
-      else if (data.type === 'cancelled') reject(Object.assign(new Error('annulé'), { code: 'CANCELLED' }));
-      else reject(new Error(data.message || 'erreur worker'));
+      else if (data.type === 'cancelled') reject(Object.assign(new Error('Cancelled'), { code: 'CANCELLED' }));
+      else reject(new Error(data.message || 'Worker error'));
     };
     worker.addEventListener('message', onMessage);
     worker.postMessage({ ...message, id });
@@ -108,7 +110,7 @@ function readMode(form, name, regexInput) {
     try {
       new RegExp(regex || '([a-z0-9._-]+):([a-z0-9._-]+)'); // validation avant lancement
     } catch (err) {
-      throw new Error('regex invalide : ' + err.message);
+      throw new Error('Invalid regex: ' + err.message);
     }
   }
   return { mode, regex };
@@ -139,7 +141,7 @@ function progressReset() {
   progressEl.classList.remove('indeterminate');
   progressEl.setAttribute('aria-valuenow', '0');
   barEl.style.width = '0%';
-  pctEl.textContent = '0 lignes · 0 %';
+  pctEl.textContent = '0 lines · 0%';
 }
 
 /** Avancement réel : lignes traitées et octets lus dans le .txt. */
@@ -149,7 +151,7 @@ function progressTo(loaded, total, lines) {
   progressEl.classList.remove('indeterminate');
   progressEl.setAttribute('aria-valuenow', String(pct));
   barEl.style.width = pct + '%';
-  pctEl.textContent = (lines === undefined ? '' : n(lines) + ' lignes · ') + pct + ' %';
+  pctEl.textContent = (lines === undefined ? '' : n(lines) + ' lines · ') + pct + '%';
 }
 
 /** Total inconnu (flux serveur) : animation le temps de la lecture. */
@@ -164,7 +166,7 @@ function progressDone(lines) {
   progressEl.classList.remove('indeterminate');
   progressEl.setAttribute('aria-valuenow', '100');
   barEl.style.width = '100%';
-  pctEl.textContent = (lines === undefined ? '' : n(lines) + ' lignes · ') + '100 %';
+  pctEl.textContent = (lines === undefined ? '' : n(lines) + ' lines · ') + '100%';
 }
 
 function progressHide() {
@@ -186,7 +188,7 @@ function setStats({ sites, values, lines, bytes }) {
 }
 
 function resetStats() {
-  setStats({ sites: '0', values: '0', lines: '0', bytes: '0.0 Mo' });
+  setStats({ sites: '0', values: '0', lines: '0', bytes: '0.0 MB' });
 }
 
 /** Petit sursaut des compteurs quand un chiffre change (100 % CSS). */
@@ -270,7 +272,7 @@ function renderSites() {
     button.addEventListener('click', () => openSite(entry.site));
     const info = document.createElement('span');
     info.className = 'count';
-    info.textContent = n(entry.count) + (entry.count > 1 ? ' valeurs' : ' valeur') + ' · ' + mb(entry.bytes);
+    info.textContent = plural(entry.count, 'value') + ' · ' + mb(entry.bytes);
     li.append(button, info);
     fragment.append(li);
   }
@@ -278,23 +280,32 @@ function renderSites() {
 
   const total = GROUP_SITES.size;
   if (filter) {
-    gsummaryEl.textContent = entries.length + ' site(s) sur ' + n(total) + ' — ' +
-      (entries.length > LIST_LIMIT ? 'affichage limité à ' + LIST_LIMIT + ', affinez le filtre' : 'cliquez sur un site');
+    if (entries.length === 0) {
+      gsummaryEl.textContent = 'No sites match "' + filter + '".';
+    } else if (entries.length > LIST_LIMIT) {
+      gsummaryEl.textContent = 'Showing the first ' + n(LIST_LIMIT) + ' of ' + n(entries.length) +
+        ' matching sites — refine your filter.';
+    } else {
+      gsummaryEl.textContent = 'Showing ' + n(entries.length) + ' of ' + n(total) + ' ' +
+        (total === 1 ? 'site' : 'sites') + ' — click a site to open it.';
+    }
   } else if (total === 0) {
-    gsummaryEl.textContent = 'aucun site pour le moment.';
+    gsummaryEl.textContent = 'No sites found yet.';
+  } else if (total > LIST_LIMIT) {
+    gsummaryEl.textContent = 'Showing the first ' + n(LIST_LIMIT) + ' of ' + plural(total, 'site') +
+      ' — use the filter to see more.';
   } else {
-    gsummaryEl.textContent = n(total) + ' site(s) — ' +
-      (total > LIST_LIMIT ? 'affichage limité à ' + LIST_LIMIT + ' (filtrez pour en voir d’autres)' : 'cliquez sur un site');
+    gsummaryEl.textContent = plural(total, 'site') + ' — click a site to open it.';
   }
 }
 
 /** Écran de lecture d'un site. */
 function showSiteTitle(site) {
   const entry = GROUP_SITES.get(site);
-  gtitreEl.textContent = site + (entry ? ' — ' + n(entry.count) + ' valeurs · ' + mb(entry.bytes) : '');
+  gtitreEl.textContent = site + (entry ? ' — ' + plural(entry.count, 'value') + ' · ' + mb(entry.bytes) : '');
   gresultEl.hidden = false;
   gwarnEl.hidden = true;
-  gtextEl.textContent = 'lecture…';
+  gtextEl.textContent = 'Loading…';
   gsaveButton.disabled = true;
   gresultEl.scrollIntoView({ block: 'nearest' });
 }
@@ -317,8 +328,8 @@ async function openSite(site) {
       groupJob.site = site;
       groupJob.siteText = text;
       progressDone();
-      gstatusEl.textContent = 'site ' + site + ' : ' + n(countLines(text)) + ' valeurs (' +
-        mb(text.length) + ') en ' + ((Date.now() - started) / 1000).toFixed(2) + ' s';
+      gstatusEl.textContent = 'Site ' + site + ': ' + plural(countLines(text), 'value') + ' (' +
+        mb(text.length) + ') in ' + ((Date.now() - started) / 1000).toFixed(2) + ' s';
     } else {
       const total = groupJob.source.size;
       const stats = await runWorker({
@@ -340,8 +351,8 @@ async function openSite(site) {
         onProgress(data) {
           progressTo(data.loaded, total, data.lines);
           const percent = total ? Math.floor((data.loaded / total) * 100) : 0;
-          gstatusEl.textContent = 'site ' + site + '… ' + percent + ' % — ' + n(data.loaded) + ' / ' +
-            n(total) + ' octets — ' + n(data.lines) + ' lignes — ' + n(data.kept) + ' valeurs';
+          gstatusEl.textContent = 'Site ' + site + '… ' + percent + '% — ' + n(data.loaded) + ' / ' +
+            n(total) + ' ' + (total === 1 ? 'byte' : 'bytes') + ' — ' + n(data.lines) + ' lines — ' + n(data.kept) + ' values';
         },
       });
 
@@ -349,22 +360,22 @@ async function openSite(site) {
       groupJob.siteText = chunks.join('');
       gtextEl.textContent = trimPreview(chunks);
       progressDone(stats.lines);
-      gstatusEl.textContent = 'site ' + site + ' : ' + n(stats.outLines) + ' valeurs (' +
-        mb(stats.outChars) + ') en ' + (stats.ms / 1000).toFixed(2) + ' s';
+      gstatusEl.textContent = 'Site ' + site + ': ' + plural(stats.outLines, 'value') + ' (' +
+        mb(stats.outChars) + ') in ' + (stats.ms / 1000).toFixed(2) + ' s';
       if (full || stats.truncated) {
         gwarnEl.hidden = false;
-        gwarnEl.textContent = 'sortie trop grosse pour la mémoire du navigateur : le .txt téléchargé est ' +
-          'partiel. Utilisez la CLI (node cli.js fichier --group --site=' + site + ') ou l’API (?site=' + site + ').';
+        gwarnEl.textContent = 'Output is too large for browser memory; the downloaded .txt file is partial. ' +
+          'Use the CLI (node cli.js file.txt --group --site=' + site + ') or the API (?site=' + site + ').';
       }
     }
     gsaveButton.disabled = !groupJob.siteText;
   } catch (err) {
-    if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'annulé.';
-    else gstatusEl.textContent = 'erreur : ' + err.message;
+    if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'Cancelled.';
+    else gstatusEl.textContent = 'Error: ' + err.message;
     gtextEl.textContent = '';
     progressHide();
   } finally {
-    gsaveButton.textContent = 'Télécharger ' + site + '.txt';
+    gsaveButton.textContent = 'Download ' + site + '.txt';
     setGroupBusy(false);
   }
 }
@@ -385,7 +396,7 @@ async function remoteSiteText(site) {
     signal: abortController.signal,
   });
   if (!response.ok || !response.body) {
-    throw new Error('serveur : ' + response.status + ' ' + (await response.text()).slice(0, 200));
+    throw new Error('Server: ' + response.status + ' ' + (await response.text()).slice(0, 200));
   }
   const reader = response.body.getReader();
   const chunks = [];
@@ -398,8 +409,8 @@ async function remoteSiteText(site) {
     if (chars * 2 > MEMORY_CAP) {
       await reader.cancel();
       gwarnEl.hidden = false;
-      gwarnEl.textContent = 'sortie trop grosse pour la mémoire du navigateur : le .txt contiendra le début seulement. ' +
-        'Utilisez l’API en direct : curl … ?site=' + site + ' -o ' + site + '.txt';
+      gwarnEl.textContent = 'Output is too large for browser memory; only the beginning will be available in the .txt file. ' +
+        'Use the API directly: curl … ?site=' + site + ' -o ' + site + '.txt';
       break;
     }
     chunks.push(text);
@@ -428,15 +439,15 @@ async function groupScan() {
 
   try {
     if (files.length === 0) {
-      if (listed.length === 0) throw new Error('choisissez un fichier .txt (ou une liste avec ?dir=…).');
-      if (!dirParam) throw new Error('lecture de chemins locaux impossible depuis le navigateur : utilisez ?dir=/dossier, l’API curl ou la CLI.');
+      if (listed.length === 0) throw new Error('Choose a .txt file (or provide a list with ?dir=…).');
+      if (!dirParam) throw new Error('The browser cannot read server-side file paths. Use ?dir=/directory, the curl API, or the CLI.');
       await groupRemoteScan(listed, opts);
       return;
     }
 
     const { source, base } = sourceFromFiles(files);
     groupJob = { source, opts, base, remote: false, stats: null };
-    gstatusEl.textContent = 'analyse…';
+    gstatusEl.textContent = 'Analyzing…';
 
     const stats = await runWorker({
       type: 'group',
@@ -448,8 +459,8 @@ async function groupScan() {
         replaceSites(data.sites);
         renderSites();
         statSites.textContent = n(data.total);
-        gstatusEl.textContent = 'analyse… ' + n(GROUP_SITES.size) + ' sites sur ' + n(data.total) +
-          (data.live ? ' (liste en cours)' : '');
+        gstatusEl.textContent = 'Analyzing… ' + n(GROUP_SITES.size) + ' of ' + plural(data.total, 'site') +
+          (data.live ? ' (live list)' : '');
       },
       onProgress(data) {
         progressTo(data.loaded, source.size, data.lines);
@@ -459,8 +470,8 @@ async function groupScan() {
           lines: n(data.lines),
           bytes: mb(data.loaded),
         });
-        gstatusEl.textContent = 'analyse… ' + n(data.loaded) + ' / ' + n(source.size) + ' octets — ' +
-          n(data.lines) + ' lignes — ' + n(data.sites) + ' sites';
+        gstatusEl.textContent = 'Analyzing… ' + n(data.loaded) + ' / ' + n(source.size) + ' ' +
+          (source.size === 1 ? 'byte' : 'bytes') + ' — ' + n(data.lines) + ' lines — ' + n(data.sites) + ' sites';
       },
     });
 
@@ -474,17 +485,17 @@ async function groupScan() {
     });
     bumpStats();
     gstatusEl.textContent = [
-      'terminé.',
-      'lu : ' + n(stats.bytes) + ' octets (' + mb(stats.bytes) + ') en ' + (stats.ms / 1000).toFixed(2) + ' s',
-      'lignes : ' + n(stats.lines) + ' — avec couple : ' + n(stats.matched) + ' — ignorées : ' + n(stats.skipped),
-      'sites : ' + n(stats.sites) + ' — valeurs : ' + n(stats.kept),
-      'cliquez sur un site pour voir ses valeurs.',
+      'Done.',
+      'Read: ' + plural(stats.bytes, 'byte') + ' (' + mb(stats.bytes) + ') in ' + (stats.ms / 1000).toFixed(2) + ' s',
+      'Lines: ' + n(stats.lines) + ' — matched lines: ' + n(stats.matched) + ' — skipped: ' + n(stats.skipped),
+      'Sites: ' + n(stats.sites) + ' — values: ' + n(stats.kept),
+      'Click a site to view its values.',
     ].join('\n');
     renderSites();
   } catch (err) {
     progressHide();
-    if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'annulé.';
-    else gstatusEl.textContent = 'erreur : ' + err.message;
+    if (err.code === 'CANCELLED' || err.name === 'AbortError') gstatusEl.textContent = 'Cancelled.';
+    else gstatusEl.textContent = 'Error: ' + err.message;
   } finally {
     setGroupBusy(false);
   }
@@ -492,7 +503,7 @@ async function groupScan() {
 
 async function groupRemoteScan(paths, opts) {
   groupJob = { opts, remote: true, paths, base: 'zach-db', stats: null };
-  gstatusEl.textContent = 'analyse serveur…';
+  gstatusEl.textContent = 'Analyzing on the server…';
   progressLive();
   abortController = new AbortController();
   const query = '/api/group?format=json' +
@@ -509,7 +520,7 @@ async function groupRemoteScan(paths, opts) {
     signal: abortController.signal,
   });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || ('serveur : ' + response.status));
+  if (!response.ok) throw new Error(payload.error || ('Server: ' + response.status));
   replaceSites(payload.sites);
   renderSites();
   progressDone();
@@ -521,9 +532,9 @@ async function groupRemoteScan(paths, opts) {
     bytes: '—',
   });
   gstatusEl.textContent = [
-    'terminé (côté serveur).',
-    'sites : ' + n(payload.total) + ' — valeurs : ' + n(payload.stats.kept),
-    'cliquez sur un site pour voir ses valeurs.',
+    'Done (server-side).',
+    'Sites: ' + n(payload.total) + ' — values: ' + n(payload.stats.kept),
+    'Click a site to view its values.',
   ].join('\n');
 }
 
@@ -535,7 +546,7 @@ groupForm.addEventListener('submit', async (event) => {
 
 gcancelButton.addEventListener('click', () => {
   cancelWorker();
-  gstatusEl.textContent = 'annulation…';
+  gstatusEl.textContent = 'Cancelling…';
 });
 
 gfilterInput.addEventListener('input', renderSites);
@@ -548,7 +559,7 @@ gsaveButton.addEventListener('click', () => {
 
 gprevButton.addEventListener('click', () => {
   gresultEl.hidden = true;
-  gtitreEl.textContent = 'site';
+  gtitreEl.textContent = 'Site';
 });
 
 gfileInput.addEventListener('change', () => {
@@ -556,7 +567,7 @@ gfileInput.addEventListener('change', () => {
   if (list.length) {
     let size = 0;
     for (const file of list) size += file.size;
-    metaEl.textContent = n(list.length) + ' fichier(s) · ' + mb(size);
+    metaEl.textContent = plural(list.length, 'file') + ' · ' + mb(size);
   }
 });
 
@@ -726,10 +737,10 @@ function initCopy() {
       const card = button.closest ? button.closest('.code-card') : null;
       const code = card ? card.querySelector('pre') : null;
       const ok = await copyText(code ? code.textContent : '');
-      button.textContent = ok ? 'copié' : 'copie impossible';
+      button.textContent = ok ? 'Copied' : 'Copy failed';
       button.classList.toggle('is-ok', ok);
       setTimeout(() => {
-        button.textContent = 'copier';
+        button.textContent = 'Copy';
         button.classList.remove('is-ok');
       }, 1600);
     });
@@ -775,9 +786,9 @@ function initDecor() {
 
 /* ================= démarrage ================= */
 
-metaEl.textContent = dirParam ? 'traitement serveur · ?dir=' + dirParam : 'traitement local · 0 envoi';
+metaEl.textContent = dirParam ? 'Server-side processing · ?dir=' + dirParam : 'Local processing · no upload';
 if (dirParam) {
-  gfilesInput.placeholder = 'un nom de fichier par ligne, lu dans le dossier ' + dirParam;
+  gfilesInput.placeholder = 'Enter one filename per line; files will be read from ' + dirParam;
 }
 renderSites();
 ensureWorker();
