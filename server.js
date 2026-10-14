@@ -82,7 +82,7 @@ async function serveFile(req, res, file, type, maxAge) {
     if (req.method === 'HEAD') res.end();
     else fs.createReadStream(file).pipe(res);
   } catch {
-    sendText(res, 404, 'introuvable\n');
+    sendText(res, 404, 'Not found\n');
   }
 }
 
@@ -91,17 +91,17 @@ async function serveStatic(req, res, url) {
   try {
     relative = decodeURIComponent(url.pathname);
   } catch {
-    return sendText(res, 400, 'chemin invalide\n');
+    return sendText(res, 400, 'Invalid path\n');
   }
   if (relative.endsWith('/')) relative += 'index.html';
-  if (relative.includes('\0')) return sendText(res, 400, 'chemin invalide\n');
+  if (relative.includes('\0')) return sendText(res, 400, 'Invalid path\n');
 
   const target = path.resolve(PUBLIC, '.' + relative);
   if (target !== PUBLIC && !target.startsWith(PUBLIC + path.sep)) {
-    return sendText(res, 403, 'interdit\n');
+    return sendText(res, 403, 'Forbidden\n');
   }
   const type = MIME.get(path.extname(target).toLowerCase());
-  if (!type) return sendText(res, 404, 'introuvable\n');
+  if (!type) return sendText(res, 404, 'Not found\n');
   return serveFile(req, res, target, type, path.basename(target) === 'index.html' ? 0 : 3600);
 }
 
@@ -111,14 +111,14 @@ function readOptions(url) {
   const params = url.searchParams;
   const mode = params.get('mode') || 'last';
   if (!MODES.includes(mode)) {
-    throw new Error('mode inconnu : ' + mode + ' (attendu : ' + MODES.join(', ') + ')');
+    throw new Error('Unknown mode: ' + mode + ' (expected: ' + MODES.join(', ') + ')');
   }
   const regex = params.get('regex') || '';
   if (mode === 'custom') {
     try {
       new RegExp(regex || '([a-z0-9._-]+):([a-z0-9._-]+)');
     } catch (err) {
-      throw new Error('regex invalide : ' + err.message);
+      throw new Error('Invalid regex: ' + err.message);
     }
   }
   const dedupe = ['1', 'true', 'on', 'yes'].includes((params.get('dedupe') || '').toLowerCase());
@@ -128,12 +128,12 @@ function readOptions(url) {
 
 /** Fichiers d'un dossier autorisé (ZACH_DB_DIR), vérifiés avant l'envoi des en-têtes. */
 async function listDir(dirParam, wanted) {
-  if (!DATA_DIR) throw new Error('lecture de dossier désactivée (définissez ZACH_DB_DIR sur le serveur)');
+  if (!DATA_DIR) throw new Error('Server-side directory access is disabled (set ZACH_DB_DIR on the server)');
   // dir=/ → la racine de ZACH_DB_DIR ; dir=/sous → ZACH_DB_DIR/sous
   const relative = String(dirParam || '').replace(/^\/+/, '');
   const target = path.resolve(DATA_DIR, relative);
   if (target !== DATA_DIR && !target.startsWith(DATA_DIR + path.sep)) {
-    throw new Error('chemin hors du dossier autorisé');
+    throw new Error('Path is outside the allowed directory');
   }
   const entries = await fsp.readdir(target, { withFileTypes: true });
   const available = new Set(entries.filter((entry) => entry.isFile() && !entry.name.startsWith('.')).map((e) => e.name));
@@ -141,9 +141,9 @@ async function listDir(dirParam, wanted) {
   const files = [];
   for (const name of names) {
     if (name.includes('/') || name.includes('\\') || name.includes('\0')) {
-      throw new Error('nom de fichier invalide : ' + name);
+      throw new Error('Invalid filename: ' + name);
     }
-    if (!available.has(name)) throw new Error('fichier introuvable : ' + name);
+    if (!available.has(name)) throw new Error('File not found: ' + name);
     const full = path.join(target, name);
     await fsp.access(full, fs.constants.R_OK);
     files.push(full);
@@ -166,7 +166,7 @@ function createWriter(res, sink) {
       return closed;
     },
     async write(text) {
-      if (this.closed) throw new Error('client parti');
+      if (this.closed) throw new Error('Client disconnected');
       if (!sink.write(text)) {
         await Promise.race([once(sink, 'drain'), new Promise((resolve) => (notify = resolve))]);
       }
@@ -179,7 +179,7 @@ async function* bodySource(req) {
   let received = 0;
   for await (const chunk of req) {
     received += chunk.length;
-    if (received > BODY_LIMIT) throw fatal('corps trop volumineux (' + BODY_LIMIT + ' octets max)');
+    if (received > BODY_LIMIT) throw fatal('Request body too large (' + BODY_LIMIT + ' bytes max)');
     yield chunk;
   }
 }
@@ -207,7 +207,7 @@ async function resolveSource(req, res, url) {
   if (req.method === 'POST') {
     if (params.get('paths') !== '1') {
       sendJson(res, 400, {
-        error: 'corps texte + dir= est ambigu : ajoutez ?paths=1 (le corps doit lister des noms de fichiers)',
+        error: 'Ambiguous request: a text body and dir= cannot be used together; add ?paths=1 (the body must list filenames)',
       });
       return null;
     }
@@ -215,7 +215,7 @@ async function resolveSource(req, res, url) {
     for await (const chunk of req) {
       raw += chunk;
       if (raw.length > 1 << 20) {
-        sendJson(res, 400, { error: 'liste de fichiers trop longue' });
+        sendJson(res, 400, { error: 'File list is too long' });
         return null;
       }
     }
@@ -230,7 +230,7 @@ async function resolveSource(req, res, url) {
     return null;
   }
   if (files.length === 0) {
-    sendJson(res, 400, { error: 'aucun fichier à traiter' });
+    sendJson(res, 400, { error: 'No files to process' });
     return null;
   }
   return { source: fileSource(files), label: 'dir:' + dirParam };
@@ -467,15 +467,15 @@ export function createServer() {
       if (req.method === 'POST' || (req.method === 'GET' && url.searchParams.get('dir') !== null)) {
         return group ? await handleGroup(req, res, url) : await handleExtract(req, res, url);
       }
-      return sendJson(res, 405, { error: 'utilisez POST (corps = texte) ou GET ?dir=/dossier' });
+      return sendJson(res, 405, { error: 'Use POST (body = text) or GET ?dir=/directory' });
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      return sendJson(res, 405, { error: 'méthode non autorisée' });
+      return sendJson(res, 405, { error: 'Method not allowed' });
     }
     return await serveStatic(req, res, url);
     } catch (err) {
     process.stderr.write('[zach-db] erreur : ' + ((err && err.stack) || err) + '\n');
-    if (!res.headersSent) sendJson(res, 500, { error: 'erreur serveur' });
+    if (!res.headersSent) sendJson(res, 500, { error: 'Server error' });
     else res.destroy();
     return undefined;
     }

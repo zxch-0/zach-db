@@ -112,7 +112,7 @@ test('app.js se charge sans erreur et branche ses écouteurs', async () => {
   }
 
   assert.equal(nodes.get('meta').textContent.length > 0, true, 'pied de page renseigné');
-  assert.ok(nodes.get('gsummary').textContent.length > 0, 'la liste vide est annoncée');
+  assert.equal(nodes.get('gsummary').textContent, 'No sites found yet.', 'empty state is in English');
   assert.equal(workerMessages.length, 0, 'aucune passe lancée au chargement');
 });
 
