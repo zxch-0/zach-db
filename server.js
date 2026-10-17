@@ -3,8 +3,10 @@
  * Sert le site (public/) et une petite API d'extraction en flux.
  * Zéro dépendance, aucun framework, aucun build.
  *
- *   GET  /                            → le site
+ *   GET  /                            → l'accueil : la liste des outils
+ *   GET  /tools/<id>/                 → la page d'un outil (ex. group-by-site)
  *   GET  /api/health                  → état du service
+ *   GET  /api/tools                   → le registre des outils (JSON)
  *   POST /api/extract                 → corps = texte brut à traiter (curl)
  *   POST /api/extract?paths=1&dir=/x  → corps = liste de noms de fichiers du dossier /x
  *   GET  /api/extract?dir=/x          → tout le dossier /x
@@ -21,6 +23,7 @@ import zlib, { createGzip, createBrotliCompress } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { createProcessor, MODES } from './public/lib/parse.js';
 import { createGrouper } from './public/lib/group.js';
+import { TOOLS, availableTools } from './public/lib/tools.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -93,16 +96,32 @@ async function serveStatic(req, res, url) {
   } catch {
     return sendText(res, 400, 'Invalid path\n');
   }
-  if (relative.endsWith('/')) relative += 'index.html';
   if (relative.includes('\0')) return sendText(res, 400, 'Invalid path\n');
 
   const target = path.resolve(PUBLIC, '.' + relative);
   if (target !== PUBLIC && !target.startsWith(PUBLIC + path.sep)) {
     return sendText(res, 403, 'Forbidden\n');
   }
-  const type = MIME.get(path.extname(target).toLowerCase());
+
+  // Un dossier (/, /tools/group-by-site…) sert son index.html ; sans slash
+  // final on redirige, pour que les liens relatifs de la page fonctionnent.
+  let file = target;
+  try {
+    const stat = await fsp.stat(target);
+    if (stat.isDirectory()) {
+      if (!relative.endsWith('/')) {
+        res.writeHead(301, { location: url.pathname + '/' + url.search, 'cache-control': 'no-store' });
+        return res.end();
+      }
+      file = path.join(target, 'index.html');
+    }
+  } catch {
+    // le chemin n'existe pas : la suite renverra le 404
+  }
+
+  const type = MIME.get(path.extname(file).toLowerCase());
   if (!type) return sendText(res, 404, 'Not found\n');
-  return serveFile(req, res, target, type, path.basename(target) === 'index.html' ? 0 : 3600);
+  return serveFile(req, res, file, type, path.basename(file) === 'index.html' ? 0 : 3600);
 }
 
 /* ---------- extraction ---------- */
@@ -460,6 +479,13 @@ export function createServer() {
     try {
     if (url.pathname === '/api/health') {
       return sendJson(res, 200, { ok: true, version: VERSION, dir: DATA_DIR, uptime: process.uptime() });
+    }
+    if (url.pathname === '/api/tools') {
+      return sendJson(res, 200, {
+        total: TOOLS.length,
+        available: availableTools().length,
+        tools: TOOLS,
+      });
     }
     if (url.pathname === '/api/extract' || url.pathname === '/api/group') {
       const group = url.pathname === '/api/group' ||

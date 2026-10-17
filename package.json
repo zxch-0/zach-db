@@ -10,7 +10,7 @@
     "test": "node --test",
     "cli": "node cli.js",
     "bench": "node bench.js",
-    "check": "node --check server.js && node --check cli.js && node --check public/lib/parse.js && node --check public/app.js && node --check public/worker.js"
+    "check": "node --check server.js && node --check cli.js && node --check public/lib/parse.js && node --check public/lib/group.js && node --check public/lib/tools.js && node --check public/app.js && node --check public/chrome.js && node --check public/worker.js"
   },
   "engines": {
     "node": ">=18"

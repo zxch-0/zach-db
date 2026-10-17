@@ -1,7 +1,11 @@
 # zach-db
 
-Extraction ultra-rapide de morceaux `xxxx:xxxx` depuis de gros fichiers texte,
-et tri de ces lignes par site.
+Un **regroupement d'outils** pour les gros fichiers `.txt` : une page d'accueil
+liste les outils, un **sélecteur d'outil** dans l'en-tête permet d'en changer
+depuis n'importe quelle page. Un seul outil est en ligne pour l'instant —
+**Combos, trier par site** (extraction ultra-rapide de morceaux `xxxx:xxxx` et
+tri de ces lignes par site).
+
 Site moderne et sobre : noir et blanc, aucun emoji, aucune police externe,
 aucun framework, aucune dépendance npm — le décor (grille en pointillés,
 halos lents, bandeau défilant, halos qui suivent le curseur, fil de lecture,
@@ -10,7 +14,7 @@ d'images. Thème sombre automatique, tout s'arrête si le système demande
 moins de mouvement.
 Une barre de progression suit l'avancement du traitement, ligne à ligne.
 
-**Vue unique — Trier par site**
+**Outil en ligne — Combos, trier par site** (`/tools/group-by-site/`)
 
 ```
 entrée :  https://www.roblox.com/x:Thou_miriba:N2Z6PQXg4XLnTSi
@@ -23,6 +27,40 @@ liste :   roblox.com    2 valeurs
 clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
                         user2:pass2
 ```
+
+## Le site : un accueil et des outils
+
+```
+/                          accueil : la collection, une carte par outil
+/tools/group-by-site/      l'outil « Combos — trier par site »
+/api/tools                 le registre des outils, en JSON
+/api/group, /api/extract   les API de cet outil
+```
+
+- **L'accueil** présente la collection : une carte par outil (ce qu'il fait,
+  ses entrées/sorties, son débit, son API et sa CLI), le socle commun aux
+  outils (local d'abord, un seul moteur pour la page/l'API/la CLI, zéro
+  dépendance) et l'API du hub.
+- **Le sélecteur d'outil** est dans l'en-tête de toutes les pages : il affiche
+  l'outil en cours (en négatif) et ouvre un menu listant l'accueil et chaque
+  outil du registre, avec son statut. Sans JavaScript, ce n'est qu'un lien vers
+  l'accueil — qui liste déjà tout.
+- **Chaque outil a sa page** sous `public/tools/<id>/`, son propre `app.js`
+  logique, et partage l'habillage `public/chrome.js` (sélecteur + décor) ainsi
+  que `public/styles.css`.
+
+Le registre `public/lib/tools.js` est la **source de vérité** : l'accueil, le
+sélecteur et `/api/tools` le lisent. Ajouter un outil :
+
+1. une entrée dans `public/lib/tools.js` (`id`, `name`, `tagline`, `path`,
+   `status: 'available' | 'soon'`, `tags`, `points`, `api`, `cli`…) ;
+2. la page `public/tools/<id>/index.html` (reprendre l'en-tête, le sélecteur et
+   le pied de page d'un outil existant) ;
+3. une carte dans `public/index.html` (`data-tool="<id>"`).
+
+`test/tools.test.js` vérifie que ces trois endroits racontent la même histoire :
+champs complets, identifiants uniques, page présente sur le disque, carte et
+lien sur l'accueil. Un outil `status: 'soon'` apparaît grisé, sans lien.
 
 ## Comment ça marche
 
@@ -88,19 +126,23 @@ s'appliquent à chaque ligne, plus le dédoublonnage **par site** et la case
 Options : `dedupe` (doublons supprimés), `hosts` (ne plus ignorer les faux
 couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
-## Le site
+## Faire tourner le site
 
 ```bash
-npm start            # http://localhost:3000
-npm test             # 53 tests (moteurs, workers, serveur HTTP, interface)
+npm start            # http://localhost:3000 → l'accueil
+npm test             # 64 tests (moteurs, workers, serveur HTTP, registre, interface)
+npm run check        # syntaxe de tous les modules
 npm run bench        # mesure sur un fichier généré
 ```
 
-Tout est dans `public/` : en-tête collant, section 01 à 03, puis les blocs
-`API` et `CLI` dépliables (avec bouton « copier »). On peut aussi glisser un
-`.txt` directement sur la zone de dépôt. Aucune requête ne part : les seules
-ressources chargées sont `/styles.css`, `/app.js`, `/worker.js` et les moteurs
-de `public/lib/`.
+Tout est dans `public/` : l'accueil (`index.html`), la page de l'outil
+(`tools/group-by-site/index.html`, sections 01 à 03 puis les blocs `API` et
+`CLI` dépliables avec bouton « copier »), l'habillage partagé (`chrome.js`) et
+les moteurs (`lib/`). On peut aussi glisser un `.txt` directement sur la zone de
+dépôt. Aucune requête ne part : les seules ressources chargées sont
+`/styles.css`, `/chrome.js`, `/app.js`, `/worker.js` et les modules de
+`public/lib/`. Un dossier servi sans slash final (`/tools/group-by-site`) est
+redirigé (301) vers sa forme avec slash.
 
 ## Ligne de commande (les plus gros fichiers)
 
@@ -136,6 +178,9 @@ curl -X POST 'https://MON-APP.onrender.com/api/extract?dir=/data&paths=1&mode=la
 b.txt' -o resultat.txt
 
 curl 'https://MON-APP.onrender.com/api/health'
+
+# le registre des outils servi par le hub
+curl 'https://MON-APP.onrender.com/api/tools'
 ```
 
 Tri par site :
@@ -199,20 +244,24 @@ CLI) : un seul code, donc un seul comportement.
 ## Arborescence
 
 ```
-public/lib/parse.js   moteur d'extraction (partagé navigateur / serveur / CLI)
-public/lib/group.js   moteur de tri par site (mêmes briques, mêmes règles)
-public/index.html     page unique : tri par site, barre de progression, décor
-public/styles.css     noir et blanc, sobre : cartes, halos, bandeau, animations
-public/app.js         interface (analyse, listes, téléchargements)
-public/worker.js      Web Worker : lecture en flux du fichier
-server.js             serveur HTTP + API (aucune dépendance)
-cli.js                ligne de commande
-bench.js              benchmark
-test/parse.test.js    moteur d'extraction
-test/group.test.js    moteur de tri par site
-test/worker.test.js   worker du navigateur
-test/site.test.js     serveur HTTP + API
-test/ui.test.js       interface : fumée, cohérence, aucun emoji, décor CSS
+public/index.html                 accueil : la collection d'outils
+public/chrome.js                  habillage partagé : sélecteur d'outil + décor
+public/styles.css                 noir et blanc, sobre : cartes, halos, bandeau
+public/lib/tools.js               registre des outils (source de vérité)
+public/lib/parse.js               moteur d'extraction (navigateur / serveur / CLI)
+public/lib/group.js               moteur de tri par site (mêmes règles)
+public/tools/group-by-site/       l'outil : page, barre de progression, résultats
+public/app.js                     interface de cet outil (listes, téléchargements)
+public/worker.js                  Web Worker : lecture en flux du fichier
+server.js                         serveur HTTP + API (aucune dépendance)
+cli.js                            ligne de commande
+bench.js                          benchmark
+test/parse.test.js                moteur d'extraction
+test/group.test.js                moteur de tri par site
+test/worker.test.js               worker du navigateur
+test/tools.test.js                registre ↔ accueil ↔ pages
+test/site.test.js                 serveur HTTP + API
+test/ui.test.js                   interface : fumée, cohérence, aucun emoji, décor
 Dockerfile, render.yaml
 ```
 

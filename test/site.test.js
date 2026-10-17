@@ -28,19 +28,44 @@ test.after(() => {
   fs.rmSync(DATA_DIR, { recursive: true, force: true });
 });
 
-test('le site et ses ressources sont servis', async () => {
+test('l\'accueil liste les outils, la page outil porte le traitement', async () => {
+  // ---- accueil : le hub ----
   const page = await fetch(base + '/');
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type'), /text\/html/);
   const html = await page.text();
   assert.match(html, /zach-db/);
   assert.match(html, /<html lang="en">/);
+  assert.match(html, /id="toolSwitcherBtn"/, 'sélecteur d\'outil sur l\'accueil');
 
+  const { TOOLS, availableTools } = await import('../public/lib/tools.js');
+  for (const tool of TOOLS) {
+    assert.ok(html.includes('data-tool="' + tool.id + '"'), 'carte de ' + tool.id + ' sur l\'accueil');
+    assert.ok(html.includes('href="' + tool.path + '"'), 'lien vers ' + tool.path + ' sur l\'accueil');
+  }
+  assert.ok(!html.includes('id="groupForm"'), 'l\'accueil ne traite rien lui-même');
+
+  // ---- page de l\'outil ----
+  const toolPath = availableTools()[0].path;
+  const toolPage = await fetch(base + toolPath);
+  assert.equal(toolPage.status, 200);
+  const toolHtml = await toolPage.text();
+  assert.ok(toolHtml.includes('id="groupForm"'), 'formulaire présent sur la page outil');
+  assert.match(toolHtml, /id="toolSwitcherBtn"/, 'sélecteur d\'outil sur la page outil');
+
+  // dossier demandé sans slash final : redirection, sinon les liens relatifs cassent
+  const moved = await fetch(base + toolPath.replace(/\/$/, ''), { redirect: 'manual' });
+  assert.equal(moved.status, 301);
+  assert.equal(moved.headers.get('location'), toolPath);
+
+  // ---- ressources statiques ----
   for (const [file, type] of [
     ['/styles.css', /text\/css/],
     ['/app.js', /javascript/],
+    ['/chrome.js', /javascript/],
     ['/worker.js', /javascript/],
     ['/lib/parse.js', /javascript/],
+    ['/lib/tools.js', /javascript/],
   ]) {
     const response = await fetch(base + file);
     assert.equal(response.status, 200, file);
@@ -48,18 +73,36 @@ test('le site et ses ressources sont servis', async () => {
     assert.ok((await response.text()).length > 0, file);
   }
 
-  // les identifiants d'éléments utilisés par app.js existent dans la page
+  // les identifiants d'éléments utilisés par app.js existent dans la page outil
   const app = await (await fetch(base + '/app.js')).text();
   const ids = [...app.matchAll(/el\('([^']+)'\)/g)].map((match) => match[1]);
   assert.ok(ids.length >= 5, 'ids trouvés : ' + ids.join(', '));
   for (const id of new Set(ids)) {
-    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
+    assert.ok(toolHtml.includes('id="' + id + '"'), 'élément #' + id + ' absent de la page outil');
   }
 
   // les modes proposés dans la page correspondent au moteur
   const { MODES } = await import('../public/lib/parse.js');
-  const values = [...html.matchAll(/name="gmode" value="([a-z]+)"/g)].map((match) => match[1]);
+  const values = [...toolHtml.matchAll(/name="gmode" value="([a-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual(values, MODES);
+});
+
+test('api tools : le registre est servi en JSON', async () => {
+  const response = await fetch(base + '/api/tools');
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /application\/json/);
+  const payload = await response.json();
+
+  const { TOOLS, availableTools } = await import('../public/lib/tools.js');
+  assert.equal(payload.total, TOOLS.length);
+  assert.equal(payload.available, availableTools().length);
+  assert.deepEqual(payload.tools.map((tool) => tool.id), TOOLS.map((tool) => tool.id));
+  assert.equal(payload.tools[0].path, TOOLS[0].path);
+
+  // la page annoncée par le registre répond bien
+  for (const tool of availableTools()) {
+    assert.equal((await fetch(base + tool.path)).status, 200, tool.path);
+  }
 });
 
 test('api : corps brut, modes et dédoublonnage', async () => {

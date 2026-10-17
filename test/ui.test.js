@@ -1,8 +1,11 @@
 /*
  * Test de fumée de l'interface : on charge public/app.js dans Node avec un
- * DOM simulé construit à partir des identifiants réellement présents dans
- * index.html. Objectif : attraper les fautes de frappe (élément manquant,
+ * DOM simulé construit à partir des identifiants réellement présents dans la
+ * page de l'outil. Objectif : attraper les fautes de frappe (élément manquant,
  * fonction mal nommée, variable non déclarée) sans navigateur.
+ *
+ * L'habillage partagé (sélecteur d'outil, décor) est dans public/chrome.js :
+ * ses identifiants doivent exister sur toutes les pages du site.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,8 +14,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
+const PAGES = {
+  home: 'public/index.html',
+  tool: 'public/tools/group-by-site/index.html',
+};
+const html = fs.readFileSync(path.join(ROOT, PAGES.tool), 'utf8');
+const home = fs.readFileSync(path.join(ROOT, PAGES.home), 'utf8');
 const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+const chrome = fs.readFileSync(path.join(ROOT, 'public/chrome.js'), 'utf8');
 
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
 
@@ -71,7 +80,7 @@ globalThis.document = {
   addEventListener() {},
 };
 
-globalThis.location = { href: 'http://localhost:3000/', hash: '', pathname: '/', search: '' };
+globalThis.location = { href: 'http://localhost:3000/tools/group-by-site/', hash: '', pathname: '/tools/group-by-site/', search: '' };
 globalThis.history = { replaceState() {} };
 
 const workerMessages = [];
@@ -116,13 +125,36 @@ test('app.js se charge sans erreur et branche ses écouteurs', async () => {
   assert.equal(workerMessages.length, 0, 'aucune passe lancée au chargement');
 });
 
-test('app.js et index.html sont cohérents', () => {
+test('chrome.js habille l’en-tête : le sélecteur porte l’outil courant', async () => {
+  const { initChrome } = await import('../public/chrome.js');
+  // DOM simulé un peu plus complet : les sélections renvoient des listes vides
+  document.querySelectorAll = () => [];
+
+  initChrome(); // ne doit rien casser, même sans vrai DOM
+  assert.equal(nodes.get('toolSwitcherName').textContent, 'Combos — group by site',
+    'l’outil courant est nommé dans l’en-tête');
+  assert.ok(nodes.get('toolSwitcherBtn').listeners.has('click'), 'le déclencheur est cliquable');
+  assert.ok(nodes.get('toolSwitcherBtn').listeners.has('keydown'), 'le déclencheur ouvre au clavier');
+  assert.ok(nodes.get('toolMenu').listeners.has('keydown'), 'le menu gère Échap et les flèches');
+
+  // sur l’accueil, aucun outil n’est courant
+  location.pathname = '/';
+  initChrome();
+  assert.equal(nodes.get('toolSwitcherName').textContent, 'All tools', 'accueil : « All tools »');
+  location.pathname = '/tools/group-by-site/';
+});
+
+test('app.js et la page de l’outil sont cohérents', () => {
   // tous les identifiants utilisés par el('…') existent
   for (const id of new Set([...app.matchAll(/el\('([^']+)'\)/g)].map((match) => match[1]))) {
-    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
+    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de ' + PAGES.tool);
   }
 
-  // une seule vue : l'ancien onglet « Extraire » a bien disparu
+  // l'outil charge l'habillage partagé (sélecteur d'outil + décor)
+  assert.match(app, /import\s+'\.\/chrome\.js'/, 'app.js importe chrome.js');
+  assert.match(chrome, /from '\.\/lib\/tools\.js'/, 'chrome.js lit le registre des outils');
+
+  // une seule vue de traitement : l'ancien onglet « Extraire » a bien disparu
   assert.ok(!html.includes('id="panel-extract"'), 'panneau Extraire retiré');
   assert.ok(!html.includes('id="tab-extract"'), 'onglet Extraire retiré');
   assert.ok(!html.includes('>Extraire<'), 'bouton Extraire retiré');
@@ -130,7 +162,7 @@ test('app.js et index.html sont cohérents', () => {
 
   // la barre de progression est en place et pilotée par app.js
   for (const id of ['gprogress', 'gbar', 'gpct']) {
-    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
+    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de ' + PAGES.tool);
   }
   assert.match(app, /progressTo\(/, 'la barre avance avec les messages de progression');
   assert.match(app, /progressDone\(/, 'la barre se termine à 100 %');
@@ -141,22 +173,52 @@ test('app.js et index.html sont cohérents', () => {
   const groupModes = [...html.matchAll(/name="gmode" value="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(groupModes, ['last', 'first', 'longest', 'all', 'custom']);
   assert.ok(!/name="mode"/.test(html), 'plus de modes pour l’extraction seule');
-  // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
-  for (const match of html.matchAll(/<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^\"]+)"/gi)) {
-    assert.fail('ressource externe chargée par la page : ' + match[1]);
+});
+
+test('le sélecteur d’outil est présent sur toutes les pages', () => {
+  for (const [name, page] of Object.entries(PAGES)) {
+    const text = name === 'home' ? home : html;
+    for (const id of ['toolSwitcher', 'toolSwitcherBtn', 'toolSwitcherName', 'toolMenu']) {
+      assert.ok(text.includes('id="' + id + '"'), 'élément #' + id + ' absent de la page ' + name);
+    }
+    // sans JavaScript, le déclencheur reste un lien vers l'accueil
+    const trigger = text.match(/<a\b(?=[^>]*\bid="toolSwitcherBtn")([^>]*)>/);
+    assert.ok(trigger, 'déclencheur absent de la page ' + name);
+    assert.match(trigger[1], /href="\//, 'le déclencheur mène à l’accueil sans JavaScript');
+    assert.match(trigger[1], /aria-haspopup="true"/);
+    assert.match(trigger[1], /aria-expanded="false"/);
+    assert.match(trigger[1], /aria-controls="toolMenu"/);
+    // le menu est vide dans le HTML : c'est le registre qui le remplit
+    assert.match(text, /<div class="toolswitch-menu" id="toolMenu"[^>]*hidden><\/div>/);
   }
-  for (const match of app.matchAll(/import\s+[^;]*from\s+['"]([^'"]+)['"]/g)) {
-    assert.ok(match[1].startsWith('./') || match[1].startsWith('/'), 'import externe : ' + match[1]);
+
+  // la page outil dit d'où elle vient, et la marque ramène à l'accueil
+  assert.match(html, /<nav class="crumb" aria-label="Breadcrumb">/);
+  assert.match(html, /<a class="brand" href="\/"/);
+  assert.match(home, /<a class="brand" href="\/" aria-current="page">/);
+
+  // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
+  for (const [name, text] of [['accueil', home], ['outil', html]]) {
+    for (const match of text.matchAll(/<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^"]+)"/gi)) {
+      assert.fail('ressource externe chargée par ' + name + ' : ' + match[1]);
+    }
+  }
+  for (const source of [app, chrome]) {
+    for (const match of source.matchAll(/import\s+[^;]*from\s+['"]([^'"]+)['"]/g)) {
+      assert.ok(match[1].startsWith('./') || match[1].startsWith('/'), 'import externe : ' + match[1]);
+    }
   }
 });
 
 test('le bouton Discord ouvre le serveur communautaire en nouvel onglet', () => {
-  const link = html.match(/<a\b(?=[^>]*\bclass="discord-link")([^>]*)>/);
-  assert.ok(link, 'bouton Discord absent de l’en-tête');
-  assert.match(link[1], /\bhref="https:\/\/discord\.gg\/uKZAZS8kY9"/);
-  assert.match(link[1], /\btarget="_blank"/);
-  assert.match(link[1], /\brel="noopener noreferrer"/);
-  assert.match(html, /<svg class="discord-logo"[^>]*aria-hidden="true"/);
+  for (const [name, text] of [['accueil', home], ['outil', html]]) {
+    const link = text.match(/<a\b(?=[^>]*\bclass="discord-link")([^>]*)>/);
+    assert.ok(link, 'bouton Discord absent de ' + name);
+    assert.match(link[1], /\bhref="https:\/\/discord\.gg\/uKZAZS8kY9"/);
+    assert.match(link[1], /\btarget="_blank"/);
+    assert.match(link[1], /\brel="noopener noreferrer"/);
+    assert.match(text, /<svg class="discord-logo"[^>]*aria-hidden="true"/);
+  }
 });
 
 test('aucun emoji dans le site', () => {
@@ -164,12 +226,15 @@ test('aucun emoji dans le site', () => {
   // projet (→, ·, —, « ») ne sont pas concernés : ils s’affichent en noir.
   const emoji = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}\u{FE0F}\u{1F1E6}-\u{1F1FF}\u{20E3}]/u;
   const files = [
-    'public/index.html',
+    PAGES.home,
+    PAGES.tool,
     'public/styles.css',
     'public/app.js',
+    'public/chrome.js',
     'public/worker.js',
     'public/lib/parse.js',
     'public/lib/group.js',
+    'public/lib/tools.js',
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -181,9 +246,10 @@ test('aucun emoji dans le site', () => {
 test('la décoration reste sobre, accessible et sans ressource distante', () => {
   const css = fs.readFileSync(path.join(ROOT, 'public/styles.css'), 'utf8');
 
-  // le décor est bien dans la page (grille, halos, bandeau, fil de lecture)
+  // le décor est bien dans les deux pages (grille, halos, bandeau, fil de lecture)
   for (const marker of ['ambient-grid', 'ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
-    assert.ok(html.includes(marker), 'décor absent de index.html : ' + marker);
+    assert.ok(home.includes(marker), 'décor absent de l’accueil : ' + marker);
+    assert.ok(html.includes(marker), 'décor absent de la page outil : ' + marker);
   }
 
   // les animations se coupent quand l’utilisateur le demande
@@ -204,6 +270,10 @@ test('la décoration reste sobre, accessible et sans ressource distante', () => 
   for (const match of css.matchAll(/animation(?:-name)?:\s*([\w-]+)/g)) {
     if (match[1] === 'none') continue;
     assert.ok(declared.has(match[1]), 'animation sans @keyframes : ' + match[1]);
+  }
+  // le sélecteur d'outil est habillé, y compris son menu
+  for (const marker of ['.toolswitch-btn', '.toolswitch-menu', '.tool-item', '.tool-card', '.crumb']) {
+    assert.ok(css.includes(marker), 'style manquant : ' + marker);
   }
 });
 
