@@ -277,13 +277,21 @@ export function pathOf(url) {
  * facultatifs : sans eux, une source est une liste texte de proxys HTTP.
  */
 export const PROXY_SOURCES = [
-  { name: 'monosans', url: 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/https.txt' },
-  { name: 'proxifly', url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt' },
-  { name: 'mmpx12', url: 'https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt' },
-  { name: 'roosterkid', url: 'https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt' },
-  { name: 'zloi-user', url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/https.txt' },
-  { name: 'hookzof', url: 'https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt', scheme: 'socks5' },
+  // Texte brut ou JSON.
+  { name: 'proxyscrape-http', url: 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all' },
+  { name: 'proxyscrape-socks5', url: 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all', scheme: 'socks5' },
+  { name: 'proxy-list-dl', url: 'https://www.proxy-list.download/api/v1/get?type=https' },
   { name: 'geonode', url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks5', type: 'json' },
+  // Les sites qui ne publient qu'une page HTML : lus par parseProxyHtml —
+  // paires de cases <td>ip</td><td>port</td>, sinon tout « ip:port » en clair.
+  { name: 'free-proxy-list.net', url: 'https://free-proxy-list.net/', type: 'html' },
+  { name: 'us-proxy', url: 'https://www.us-proxy.org/', type: 'html' },
+  { name: 'sslproxies', url: 'https://www.sslproxies.org/', type: 'html' },
+  { name: 'proxypremium', url: 'https://proxypremium.top/download-proxy-list', type: 'html' },
+  { name: 'free-proxy.cz', url: 'http://free-proxy.cz/en/proxylist/country/all/http/ping/all', type: 'html' },
+  { name: 'hidemyname', url: 'https://hidemy.name/en/proxy-list/', type: 'html' },
+  { name: 'openproxy', url: 'https://openproxy.space/list', type: 'html' },
+  { name: 'ipfail', url: 'https://webtools.ipfail.org/free-proxy-tools', type: 'html' },
 ];
 
 /**
@@ -384,6 +392,86 @@ export function parseProxyJson(text, options = {}) {
     out.push(proxy);
     if (out.length >= limit) break;
   }
+  return out;
+}
+
+/** Base64 → texte, Node ou navigateur ; renvoie '' si indécodable. */
+function decodeBase64(blob) {
+  try {
+    if (typeof Buffer !== 'undefined') return Buffer.from(String(blob), 'base64').toString('latin1');
+    if (typeof atob === 'function') return atob(String(blob));
+  } catch { /* du bruit quelconque : ignoré */ }
+  return '';
+}
+
+/** Le texte d'une case de tableau : les balises partent, le contenu reste. */
+function cellText(html) {
+  return String(html).replace(/<[^>]*>/g, ' ');
+}
+
+/**
+ * Une page HTML de liste (free-proxy-list.net, us-proxy.org, sslproxies.org,
+ * proxypremium.top, hidemy.name, free-proxy.cz, openproxy.space…) : ces sites
+ * ne publient pas de texte brut, alors on lit le tableau. Deux passes qui se
+ * complètent :
+ *
+ * 1. ligne par ligne, une case qui contient une adresse IP suivie d'une case
+ *    qui ne contient qu'un numéro de port — les balises internes sont
+ *    ignorées, et les blocs Base64.decode("…") de free-proxy.cz sont décodés
+ *    avant, puisqu'ils écrivent l'IP à l'affichage ;
+ * 2. en repli, tout « ip:port » en clair n'importe où dans la page (JSON
+ *    embarqué, attributs, texte), pour les sites sans tableau strict.
+ *
+ * Les octets > 255, les ports hors plage et les doublons sont écartés ; la
+ * validation au tunnel fera le tri du reste, comme pour les listes texte.
+ */
+export function parseProxyHtml(text, options = {}) {
+  const limit = Number(options.limit) > 0 ? Number(options.limit) : Infinity;
+  let page = String(text || '');
+
+  page = page.replace(/Base64\.decode\(["'`]([A-Za-z0-9+/=]+)["'`]\)/g, (all, blob) => {
+    const decoded = decodeBase64(blob);
+    return decoded ? ' ' + decoded + ' ' : ' ';
+  });
+
+  const IP = /(\d{1,3}(?:\.\d{1,3}){3})/;
+  const seen = new Set();
+  const out = [];
+  const push = (host, portText) => {
+    if (out.length >= limit) return;
+    const octets = String(host).split('.').map(Number);
+    const port = Number(portText);
+    if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+    const proxy = { host: octets.join('.'), port, auth: null };
+    if (options.scheme === 'socks5') proxy.scheme = 'socks5';
+    const key = (proxy.scheme || 'http') + '://' + proxy.host + ':' + proxy.port;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(proxy);
+  };
+
+  const ROW = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const CELL = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+  let row;
+  while ((row = ROW.exec(page)) !== null && out.length < limit) {
+    const cells = [];
+    let cell;
+    CELL.lastIndex = 0;
+    while ((cell = CELL.exec(row[1])) !== null) cells.push(cellText(cell[1]).trim());
+    for (let i = 0; i + 1 < cells.length; i++) {
+      const ip = IP.exec(cells[i]);
+      if (ip && /^(\d{1,5})$/.test(cells[i + 1])) {
+        push(ip[1], cells[i + 1]);
+        break;
+      }
+    }
+  }
+
+  const BARE = /\b(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})\b/g;
+  let bare;
+  while ((bare = BARE.exec(page)) !== null && out.length < limit) push(bare[1], bare[2]);
+
   return out;
 }
 

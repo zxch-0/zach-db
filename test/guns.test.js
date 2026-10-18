@@ -12,6 +12,7 @@ import {
   extractSlug,
   guessViews,
   parseChallenge,
+  parseProxyHtml,
   parseProxyLine,
   parseProxyList,
   pathOf,
@@ -53,6 +54,44 @@ test('proxys : lecture, formats variés, dédoublonnage', () => {
   assert.equal(list.length, 3);
   assert.deepEqual(list.map((proxy) => proxy.host), ['1.2.3.4', '5.6.7.8', '9.9.9.9']);
   assert.equal(parseProxyList('1.2.3.4:80\n5.6.7.8:81', { limit: 1 }).length, 1);
+});
+
+test('proxys HTML : tableaux, cases balisées, Base64 et repli « ip:port »', () => {
+  // La forme free-proxy-list.net / us-proxy.org / sslproxies.org, et une
+  // variante balisée façon hidemy.name (spans autour de l'IP et du port,
+  // nombre impair de cases par ligne).
+  const table = '<table><tr><td>65.108.159.129</td><td>8081</td><td>FI</td></tr>' +
+    '<tr><td><span>156.38.112.11</span></td><td><span class="fport">80</span></td>' +
+    '<td>GH</td><td>100 ms</td><td>HTTP</td><td>Average</td><td>2 minutes</td></tr></table>';
+  assert.deepEqual(parseProxyHtml(table), [
+    { host: '65.108.159.129', port: 8081, auth: null },
+    { host: '156.38.112.11', port: 80, auth: null },
+  ]);
+  assert.deepEqual(parseProxyHtml(table, { limit: 1 }), [{ host: '65.108.159.129', port: 8081, auth: null }]);
+  assert.deepEqual(parseProxyHtml('<tr><td>1.2.3.4</td><td>1080</td></tr>', { scheme: 'socks5' }),
+    [{ host: '1.2.3.4', port: 1080, auth: null, scheme: 'socks5' }]);
+
+  // free-proxy.cz écrit l'IP via document.write(Base64.decode("…")).
+  const blob = Buffer.from('184.75.221.82').toString('base64');
+  const cz = '<tr><td><script>document.write(Base64.decode("' + blob + '"))</script></td><td>3118</td></tr>';
+  assert.deepEqual(parseProxyHtml(cz), [{ host: '184.75.221.82', port: 3118, auth: null }]);
+
+  // Repli : liste embarquée dans un script ; doublons, octets et ports hors
+  // plage écartés.
+  const embedded = '<script>var x=["1.2.3.4:80","1.2.3.4:80","999.1.1.1:80","5.6.7.8:99999","9.9.9.9:3128"];</script>';
+  assert.deepEqual(parseProxyHtml(embedded), [
+    { host: '1.2.3.4', port: 80, auth: null },
+    { host: '9.9.9.9', port: 3128, auth: null },
+  ]);
+
+  // La passe tableau gagne avant le repli, et une ligne sans IP n'en garde aucune.
+  const both = '<tr><td>8.8.8.8</td><td>3128</td></tr><script>"1.2.3.4:80"</script>';
+  assert.deepEqual(parseProxyHtml(both), [
+    { host: '8.8.8.8', port: 3128, auth: null },
+    { host: '1.2.3.4', port: 80, auth: null },
+  ]);
+  assert.deepEqual(parseProxyHtml('<tr><td>France</td><td>100 ms</td></tr>'), []);
+  assert.deepEqual(parseProxyHtml(''), []);
 });
 
 test('challenge : lecture de « _gpp_ch » dans le HTML échappé', () => {
