@@ -3,14 +3,27 @@
  * Sert le site (public/) et une petite API d'extraction en flux.
  * Zéro dépendance, aucun framework, aucun build.
  *
- *   GET  /                            → le site
+ *   GET  /                            → l'accueil : la liste des outils
+ *   GET  /tools/<id>/                 → la page d'un outil (ex. group-by-site)
  *   GET  /api/health                  → état du service
+ *   GET  /api/tools                   → le registre des outils (JSON)
  *   POST /api/extract                 → corps = texte brut à traiter (curl)
  *   POST /api/extract?paths=1&dir=/x  → corps = liste de noms de fichiers du dossier /x
  *   GET  /api/extract?dir=/x          → tout le dossier /x
+ *   GET  /api/discord/user?id=<flocon>→ profil Discord complet (?guilds=1 ajoute
+ *                                       les serveurs communs) ; sans jeton, rend
+ *                                       tout ce que l'identifiant raconte
+ *   GET  /api/discord/flags           → la table des drapeaux publics décodés
+ *
+ * Les ressources statiques sont servies avec ETag + no-cache : le navigateur
+ * redemande, le serveur répond 304 si rien n'a changé (aucune feuille de style
+ * périmée après une modification).
  *
  * Paramètres : mode=last|first|longest|all|custom, regex=…, dedupe=0|1, gz=0
  * Variables : PORT, HOST, ZACH_DB_DIR, ZACH_DB_BODY_LIMIT (octets, 256 Mo par défaut)
+ * Discord   : DISCORD_TOKEN (jeton bot, secret — jamais envoyé au navigateur),
+ *             DISCORD_API_BASE, DISCORD_TIMEOUT_MS, DISCORD_GUILD_CAP,
+ *             DISCORD_RATE_MAX / DISCORD_RATE_WINDOW (garde-fou par adresse IP)
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -21,6 +34,8 @@ import zlib, { createGzip, createBrotliCompress } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { createProcessor, MODES } from './public/lib/parse.js';
 import { createGrouper } from './public/lib/group.js';
+import { TOOLS, availableTools } from './public/lib/tools.js';
+import { lookup as discordLookup, flagTable } from './public/lib/discord-api.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -71,13 +86,24 @@ function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
 
 /* ---------- fichiers statiques ---------- */
 
-async function serveFile(req, res, file, type, maxAge) {
+/** Fichier statique : ETag + no-cache, donc jamais de CSS ou de JS périmé.
+ *  Le navigateur conserve la ressource mais la revalide à chaque visite ; si
+ *  rien n'a changé, le serveur répond 304 sans renvoyer un octet. */
+async function serveFile(req, res, file, type, revalidate) {
   try {
     const stat = await fsp.stat(file);
+    const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"';
+    const cacheControl = revalidate ? 'no-cache' : 'no-store';
+    if (revalidate && req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { etag, 'cache-control': cacheControl });
+      return res.end();
+    }
     res.writeHead(200, {
       'content-type': type,
       'content-length': stat.size,
-      'cache-control': maxAge ? 'public, max-age=' + maxAge : 'no-store',
+      'cache-control': cacheControl,
+      etag,
+      'last-modified': stat.mtime.toUTCString(),
     });
     if (req.method === 'HEAD') res.end();
     else fs.createReadStream(file).pipe(res);
@@ -93,16 +119,32 @@ async function serveStatic(req, res, url) {
   } catch {
     return sendText(res, 400, 'Invalid path\n');
   }
-  if (relative.endsWith('/')) relative += 'index.html';
   if (relative.includes('\0')) return sendText(res, 400, 'Invalid path\n');
 
   const target = path.resolve(PUBLIC, '.' + relative);
   if (target !== PUBLIC && !target.startsWith(PUBLIC + path.sep)) {
     return sendText(res, 403, 'Forbidden\n');
   }
-  const type = MIME.get(path.extname(target).toLowerCase());
+
+  // Un dossier (/, /tools/group-by-site…) sert son index.html ; sans slash
+  // final on redirige, pour que les liens relatifs de la page fonctionnent.
+  let file = target;
+  try {
+    const stat = await fsp.stat(target);
+    if (stat.isDirectory()) {
+      if (!relative.endsWith('/')) {
+        res.writeHead(301, { location: url.pathname + '/' + url.search, 'cache-control': 'no-store' });
+        return res.end();
+      }
+      file = path.join(target, 'index.html');
+    }
+  } catch {
+    // le chemin n'existe pas : la suite renverra le 404
+  }
+
+  const type = MIME.get(path.extname(file).toLowerCase());
   if (!type) return sendText(res, 404, 'Not found\n');
-  return serveFile(req, res, target, type, path.basename(target) === 'index.html' ? 0 : 3600);
+  return serveFile(req, res, file, type, path.basename(file) !== 'index.html');
 }
 
 /* ---------- extraction ---------- */
@@ -443,6 +485,56 @@ async function handleGroup(req, res, url) {
   });
 }
 
+/* ---------- discord lookup ---------- */
+
+const RATE_MAX = Number(process.env.DISCORD_RATE_MAX) || 30;
+const RATE_WINDOW = Number(process.env.DISCORD_RATE_WINDOW) || 60000;
+const hits = new Map(); // adresse IP → horodatages des recherches récentes
+
+/** Adresse du client (Render et les autres reverse-proxy ajoutent x-forwarded-for). */
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket.remoteAddress || 'inconnue';
+}
+
+/**
+ * Garde-fou : cette route relaie un jeton bot, elle ne doit pas pouvoir être
+ * matraquée. Renvoie le nombre de secondes à attendre, 0 si tout va bien.
+ */
+function throttle(ip, max = RATE_MAX, windowMs = RATE_WINDOW) {
+  const now = Date.now();
+  const recent = (hits.get(ip) || []).filter((stamp) => now - stamp < windowMs);
+  recent.push(now);
+  hits.set(ip, recent);
+  if (hits.size > 2000) {
+    for (const [key, value] of hits) if (!value.some((stamp) => now - stamp < windowMs)) hits.delete(key);
+  }
+  if (recent.length > max) return Math.max(1, Math.ceil((windowMs - (now - recent[0])) / 1000));
+  return 0;
+}
+
+async function handleDiscord(req, res, url) {
+  const params = url.searchParams;
+  const wait = throttle(clientIp(req));
+  if (wait) {
+    return sendJson(res, 429, {
+      ok: false,
+      error: 'Too many lookups from this address',
+      retry_after: wait,
+    });
+  }
+
+  const payload = await discordLookup(params.get('id') || params.get('user') || params.get('q') || '', {
+    guilds: ['1', 'true', 'on', 'yes'].includes(String(params.get('guilds') || '').toLowerCase()),
+    size: params.get('size'),
+  });
+
+  const { status, ...body } = payload;
+  process.stdout.write('[zach-db] discord id=' + (payload.id || '-') + ' mode=' + payload.mode +
+    ' ' + status + ' ' + (payload.elapsed || 0) + 'ms\n');
+  return sendJson(res, status, body);
+}
+
 /* ---------- serveur ---------- */
 
 export function createServer() {
@@ -459,7 +551,29 @@ export function createServer() {
 
     try {
     if (url.pathname === '/api/health') {
-      return sendJson(res, 200, { ok: true, version: VERSION, dir: DATA_DIR, uptime: process.uptime() });
+      return sendJson(res, 200, {
+        ok: true,
+        version: VERSION,
+        dir: DATA_DIR,
+        discord: Boolean(process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN || process.env.ZACH_DB_DISCORD_TOKEN),
+        uptime: process.uptime(),
+      });
+    }
+    if (url.pathname === '/api/tools') {
+      return sendJson(res, 200, {
+        total: TOOLS.length,
+        available: availableTools().length,
+        tools: TOOLS,
+      });
+    }
+    if (url.pathname === '/api/discord/flags') {
+      return sendJson(res, 200, flagTable());
+    }
+    if (url.pathname === '/api/discord/user' || url.pathname === '/api/discord') {
+      if (req.method !== 'GET') {
+        return sendJson(res, 405, { error: 'Use GET /api/discord/user?id=<snowflake>' });
+      }
+      return await handleDiscord(req, res, url);
     }
     if (url.pathname === '/api/extract' || url.pathname === '/api/group') {
       const group = url.pathname === '/api/group' ||

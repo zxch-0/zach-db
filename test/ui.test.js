@@ -1,8 +1,11 @@
 /*
  * Test de fumée de l'interface : on charge public/app.js dans Node avec un
- * DOM simulé construit à partir des identifiants réellement présents dans
- * index.html. Objectif : attraper les fautes de frappe (élément manquant,
+ * DOM simulé construit à partir des identifiants réellement présents dans la
+ * page de l'outil. Objectif : attraper les fautes de frappe (élément manquant,
  * fonction mal nommée, variable non déclarée) sans navigateur.
+ *
+ * L'habillage partagé (sélecteur d'outil, décor) est dans public/chrome.js :
+ * ses identifiants doivent exister sur toutes les pages du site.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,8 +14,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const html = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
+const PAGES = {
+  home: 'public/index.html',
+  tool: 'public/tools/group-by-site/index.html',
+  lookup: 'public/tools/discord-lookup/index.html',
+};
+const TEXTS = Object.fromEntries(
+  Object.entries(PAGES).map(([name, file]) => [name, fs.readFileSync(path.join(ROOT, file), 'utf8')])
+);
+const html = TEXTS.tool;
+const home = TEXTS.home;
+const lookup = TEXTS.lookup;
 const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+const chrome = fs.readFileSync(path.join(ROOT, 'public/chrome.js'), 'utf8');
 
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
 
@@ -71,7 +85,7 @@ globalThis.document = {
   addEventListener() {},
 };
 
-globalThis.location = { href: 'http://localhost:3000/', hash: '', pathname: '/', search: '' };
+globalThis.location = { href: 'http://localhost:3000/tools/group-by-site/', hash: '', pathname: '/tools/group-by-site/', search: '' };
 globalThis.history = { replaceState() {} };
 
 const workerMessages = [];
@@ -116,13 +130,88 @@ test('app.js se charge sans erreur et branche ses écouteurs', async () => {
   assert.equal(workerMessages.length, 0, 'aucune passe lancée au chargement');
 });
 
-test('app.js et index.html sont cohérents', () => {
-  // tous les identifiants utilisés par el('…') existent
-  for (const id of new Set([...app.matchAll(/el\('([^']+)'\)/g)].map((match) => match[1]))) {
-    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
+test('chrome.js habille l’en-tête : le sélecteur porte l’outil courant', async () => {
+  const { initChrome } = await import('../public/chrome.js');
+  // DOM simulé un peu plus complet : les sélections renvoient des listes vides
+  document.querySelectorAll = () => [];
+
+  initChrome(); // ne doit rien casser, même sans vrai DOM
+  assert.equal(nodes.get('toolSwitcherName').textContent, 'Group by site',
+    'l’outil courant est nommé dans l’en-tête');
+  assert.ok(nodes.get('toolSwitcherBtn').listeners.has('keydown'), 'le déclencheur ouvre au clavier');
+  assert.ok(nodes.get('toolMenu').listeners.has('keydown'), 'le menu gère Échap et les flèches');
+
+  // sur l’accueil, aucun outil n’est courant
+  location.pathname = '/';
+  initChrome();
+  assert.equal(nodes.get('toolSwitcherName').textContent, 'All tools', 'accueil : « All tools »');
+  location.pathname = '/tools/group-by-site/';
+});
+
+/* Contexte 2D fantôme : toute méthode renvoie une fonction qui ne fait rien,
+   tout gradient répond addColorStop. De quoi exécuter le vrai code de dessin. */
+function fakeContext() {
+  const gradient = { addColorStop() {} };
+  const target = {
+    createLinearGradient: () => gradient,
+    createRadialGradient: () => gradient,
+    lineWidth: 1,
+    fillStyle: '',
+    strokeStyle: '',
+  };
+  return new Proxy(target, {
+    get(box, prop) {
+      if (prop in box) return box[prop];
+      return () => {};
+    },
+    set(box, prop, value) {
+      box[prop] = value;
+      return true;
+    },
+  });
+}
+
+const fakeBox = () => ({ width: 1200, height: 780, top: 0, left: 0, right: 1200, bottom: 780 });
+
+test('home.js dessine ses trois calques, décode sa ligne et remplit la télémétrie', async () => {
+  // le DOM simulé reçoit les identifiants de l'accueil, une taille et un contexte
+  for (const id of [...home.matchAll(/id="([^"]+)"(?![^>]*data-)/g)].map((m) => m[1])) {
+    if (!nodes.has(id)) nodes.set(id, fakeNode(id));
+  }
+  for (const node of nodes.values()) {
+    node.getBoundingClientRect = fakeBox;
+    node.getContext = fakeContext;
   }
 
-  // une seule vue : l'ancien onglet « Extraire » a bien disparu
+  const decodeNode = fakeNode('decode');
+  const decodeText = home.match(/data-decode="([^"]+)"/)[1];
+  decodeNode.attributes.set('data-decode', decodeText);
+  document.querySelectorAll = (selector) => (selector === '[data-decode]' ? [decodeNode] : []);
+
+  // mouvement réduit : le moteur doit composer une image fixe, sans minuterie
+  globalThis.matchMedia = (query) => ({ media: query, matches: /reduced-motion/.test(query) });
+
+  await import('../public/home.js?smoke=1');
+
+  assert.equal(decodeNode.textContent, decodeText, 'la ligne décodée retombe sur son texte');
+  assert.match(nodes.get('telClock').textContent, /^\d{2}:\d{2}:\d{2}$/, 'heure locale affichée');
+  assert.equal(nodes.get('telFps').textContent, 'still frame', 'mouvement réduit : image fixe annoncée');
+  assert.equal(nodes.get('telPointer').textContent, '0.50 / 0.50', 'pointeur au centre par défaut');
+  assert.equal(Number(nodes.get('telDust').textContent.replace(/[^0-9]/g, '')) > 20, true,
+    'poussière comptée');
+});
+
+test('app.js et la page de l’outil sont cohérents', () => {
+  // tous les identifiants utilisés par el('…') existent
+  for (const id of new Set([...app.matchAll(/el\('([^']+)'\)/g)].map((match) => match[1]))) {
+    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de ' + PAGES.tool);
+  }
+
+  // l'outil charge l'habillage partagé (sélecteur d'outil + décor)
+  assert.match(app, /import\s+'\.\/chrome\.js'/, 'app.js importe chrome.js');
+  assert.match(chrome, /from '\.\/lib\/tools\.js'/, 'chrome.js lit le registre des outils');
+
+  // une seule vue de traitement : l'ancien onglet « Extraire » a bien disparu
   assert.ok(!html.includes('id="panel-extract"'), 'panneau Extraire retiré');
   assert.ok(!html.includes('id="tab-extract"'), 'onglet Extraire retiré');
   assert.ok(!html.includes('>Extraire<'), 'bouton Extraire retiré');
@@ -130,7 +219,7 @@ test('app.js et index.html sont cohérents', () => {
 
   // la barre de progression est en place et pilotée par app.js
   for (const id of ['gprogress', 'gbar', 'gpct']) {
-    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de index.html');
+    assert.ok(html.includes('id="' + id + '"'), 'élément #' + id + ' absent de ' + PAGES.tool);
   }
   assert.match(app, /progressTo\(/, 'la barre avance avec les messages de progression');
   assert.match(app, /progressDone\(/, 'la barre se termine à 100 %');
@@ -141,22 +230,70 @@ test('app.js et index.html sont cohérents', () => {
   const groupModes = [...html.matchAll(/name="gmode" value="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(groupModes, ['last', 'first', 'longest', 'all', 'custom']);
   assert.ok(!/name="mode"/.test(html), 'plus de modes pour l’extraction seule');
-  // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
-  for (const match of html.matchAll(/<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^\"]+)"/gi)) {
-    assert.fail('ressource externe chargée par la page : ' + match[1]);
+});
+
+test('le sélecteur d’outil est présent sur toutes les pages', () => {
+  for (const [name, page] of Object.entries(PAGES)) {
+    const text = TEXTS[name];
+    for (const id of ['toolSwitcher', 'toolSwitcherBtn', 'toolSwitcherName', 'toolMenu']) {
+      assert.ok(text.includes('id="' + id + '"'), 'élément #' + id + ' absent de la page ' + name);
+    }
+    // un <details> : le menu s'ouvre au clic, même sans JavaScript
+    assert.match(text, /<details class="toolswitch[^"]*" id="toolSwitcher">/, 'sélecteur <details> sur ' + name);
+    assert.match(text, /<summary class="toolswitch-btn" id="toolSwitcherBtn"/, 'déclencheur <summary> sur ' + name);
+    // le menu est écrit dans la page : aucune navigation ne dépend du registre JS
+    const menu = text.slice(text.indexOf('id="toolMenu"'), text.indexOf('</details>'));
+    assert.match(menu, /class="tool-item"[^>]*href="\//, 'le menu liste au moins l’accueil sur ' + name);
+    assert.match(menu, /<span class="tool-item-text">/, 'entrée de menu renseignée sur ' + name);
   }
-  for (const match of app.matchAll(/import\s+[^;]*from\s+['"]([^'"]+)['"]/g)) {
-    assert.ok(match[1].startsWith('./') || match[1].startsWith('/'), 'import externe : ' + match[1]);
+
+  // chaque page d'outil dit d'où elle vient, et la marque ramène à l'accueil
+  for (const [name, text] of [['outil', html], ['lookup', lookup]]) {
+    assert.ok(text.includes('<nav class="crumb" aria-label="Breadcrumb">'), 'fil d’Ariane absent de ' + name);
+    assert.ok(text.includes('<a class="brand" href="/"'), 'marque sans retour à l’accueil sur ' + name);
+    assert.ok(!text.includes('/#tools'), name + ' pointe vers une ancre qui n’existe plus');
+  }
+  assert.match(home, /<a class="brand" href="\/" aria-current="page">/);
+
+  // le logo est un SVG dessiné sur place, jamais une image
+  for (const [name, text] of [['accueil', home], ['outil', html], ['lookup', lookup]]) {
+    assert.match(text, /<svg class="logo" viewBox="0 0 48 48"/, 'logo absent de ' + name);
+    assert.match(text, /class="logo-z"/, 'le Z du logo absent de ' + name);
+    assert.match(text, /<span class="brand-sub">tools by zach<\/span>/, 'signature « tools by zach » sur ' + name);
+  }
+
+  // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
+  for (const [name, text] of [['accueil', home], ['outil', html], ['lookup', lookup]]) {
+    for (const match of text.matchAll(/<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^"]+)"/gi)) {
+      assert.fail('ressource externe chargée par ' + name + ' : ' + match[1]);
+    }
+    // l'accueil et le tri par site ne chargent aucune image ; discord lookup
+    // montre un avatar, mais son adresse n'arrive qu'avec le résultat
+    const images = [...text.matchAll(/<img\b[^>]*>/gi)];
+    if (name === 'lookup') {
+      assert.equal(images.length, 1, 'une seule image sur discord lookup : l’avatar');
+      assert.ok(!/\bsrc=/.test(images[0][0]), 'l’avatar n’a pas d’adresse figée dans la page');
+      assert.match(images[0][0], /referrerpolicy="no-referrer"/);
+    } else {
+      assert.equal(images.length, 0, name + ' ne doit contenir aucune balise <img>');
+    }
+  }
+  for (const source of [app, chrome]) {
+    for (const match of source.matchAll(/import\s+[^;]*from\s+['"]([^'"]+)['"]/g)) {
+      assert.ok(match[1].startsWith('./') || match[1].startsWith('/'), 'import externe : ' + match[1]);
+    }
   }
 });
 
 test('le bouton Discord ouvre le serveur communautaire en nouvel onglet', () => {
-  const link = html.match(/<a\b(?=[^>]*\bclass="discord-link")([^>]*)>/);
-  assert.ok(link, 'bouton Discord absent de l’en-tête');
-  assert.match(link[1], /\bhref="https:\/\/discord\.gg\/uKZAZS8kY9"/);
-  assert.match(link[1], /\btarget="_blank"/);
-  assert.match(link[1], /\brel="noopener noreferrer"/);
-  assert.match(html, /<svg class="discord-logo"[^>]*aria-hidden="true"/);
+  for (const [name, text] of [['accueil', home], ['outil', html], ['lookup', lookup]]) {
+    const link = text.match(/<a\b(?=[^>]*\bclass="discord-link")([^>]*)>/);
+    assert.ok(link, 'bouton Discord absent de ' + name);
+    assert.match(link[1], /\bhref="https:\/\/discord\.gg\/uKZAZS8kY9"/);
+    assert.match(link[1], /\btarget="_blank"/);
+    assert.match(link[1], /\brel="noopener noreferrer"/);
+    assert.match(text, /<svg class="discord-logo"[^>]*aria-hidden="true"/);
+  }
 });
 
 test('aucun emoji dans le site', () => {
@@ -164,12 +301,18 @@ test('aucun emoji dans le site', () => {
   // projet (→, ·, —, « ») ne sont pas concernés : ils s’affichent en noir.
   const emoji = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}\u{FE0F}\u{1F1E6}-\u{1F1FF}\u{20E3}]/u;
   const files = [
-    'public/index.html',
+    ...Object.values(PAGES),
     'public/styles.css',
     'public/app.js',
+    'public/home.js',
+    'public/lookup.js',
+    'public/chrome.js',
     'public/worker.js',
     'public/lib/parse.js',
     'public/lib/group.js',
+    'public/lib/tools.js',
+    'public/lib/discord.js',
+    'public/lib/discord-api.js',
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -181,15 +324,29 @@ test('aucun emoji dans le site', () => {
 test('la décoration reste sobre, accessible et sans ressource distante', () => {
   const css = fs.readFileSync(path.join(ROOT, 'public/styles.css'), 'utf8');
 
-  // le décor est bien dans la page (grille, halos, bandeau, fil de lecture)
-  for (const marker of ['ambient-grid', 'ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
-    assert.ok(html.includes(marker), 'décor absent de index.html : ' + marker);
+  // le décor est bien dans les deux pages (halos, grain, bandeau, fil de lecture)
+  for (const marker of ['ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
+    for (const [name, text] of Object.entries(TEXTS)) {
+      assert.ok(text.includes(marker), 'décor absent de la page ' + name + ' : ' + marker);
+    }
   }
+  assert.ok(home.includes('void-canvas'), 'fond animé absent de l’accueil');
+  for (const [name, text] of [['outil', html], ['lookup', lookup]]) {
+    assert.ok(text.includes('ambient-grid'), 'grille absente de la page ' + name);
+    assert.match(text, /<meta name="color-scheme" content="light dark">/, name + ' suit le thème du système');
+  }
+
+  // l'accueil impose le noir, les autres pages suivent le système
+  assert.match(home, /<html lang="en" class="void">/, 'accueil en fond noir imposé');
+  assert.match(home, /<meta name="color-scheme" content="dark">/);
+  assert.match(html, /<meta name="color-scheme" content="light dark">/);
 
   // les animations se coupent quand l’utilisateur le demande
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, 'mouvement réduit géré');
-  // le thème suit le réglage du système, sans thème clair imposé
-  assert.match(css, /@media \(prefers-color-scheme: dark\)/, 'thème sombre automatique');
+  // le thème sombre est la base ; le clair suit le système, sauf sur l'accueil
+  assert.match(css, /@media \(prefers-color-scheme: light\) \{\s*:root:not\(\.void\)/,
+    'thème clair réservé aux pages qui suivent le système');
+  assert.match(css, /html\.void \{ color-scheme: dark; \}/, 'accueil : noir imposé');
   // aucune image ni police distante : le décor est fait de CSS
   // (les data URI contiennent eux-mêmes un url(%23n) : on les retire avant)
   const withoutData = css.replace(/url\(\s*(["'])data:[\s\S]*?\1\s*\)/g, 'URL');
@@ -205,6 +362,25 @@ test('la décoration reste sobre, accessible et sans ressource distante', () => 
     if (match[1] === 'none') continue;
     assert.ok(declared.has(match[1]), 'animation sans @keyframes : ' + match[1]);
   }
+  // sélecteur d'outil, logo et instruments de l'accueil sont habillés
+  for (const marker of [
+    '.toolswitch-btn', '.toolswitch-menu', '.tool-item', '.crumb',
+    '.logo-ring', '.logo-z', '.void-canvas', '.core-canvas', '.telemetry', '.signal-canvas',
+  ]) {
+    assert.ok(css.includes(marker), 'style manquant : ' + marker);
+  }
+  // plus aucune carte d'outil dans le CSS : l'accueil ne cite pas les outils
+  for (const marker of ['.tool-card', '.tools-grid', '.tool-meta', '.badge-on']) {
+    assert.ok(!css.includes(marker), 'style d’outil encore présent : ' + marker);
+  }
+
+  // discord lookup a son habillage, et le site reste en noir et blanc par défaut
+  for (const marker of ['.bits-cell', '.facts', '.profile-banner', '.profile-img', '.badges',
+    '.assets', '.guilds', '.swatch', '.panel-note', '.id-field']) {
+    assert.ok(css.includes(marker), 'style manquant pour discord lookup : ' + marker);
+  }
+  assert.match(css, /filter: grayscale\(1\)/, 'les visuels arrivent en niveaux de gris');
+  assert.match(css, /body\.show-colors \.profile-img/, 'les couleurs se demandent explicitement');
 });
 
 test.after(() => {

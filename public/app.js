@@ -9,6 +9,8 @@
  * Rien ne transite par le réseau. Cas particulier : si l'URL contient
  * ?dir=/dossier, le serveur lit les fichiers (flux HTTP) à la place.
  */
+import './chrome.js'; // sélecteur d'outil + décor commun à toutes les pages
+
 const MEMORY_CAP = 64 * 1024 * 1024; // garde-fou mémoire
 const PREVIEW_CHARS = 48 * 1024;
 const LIST_LIMIT = 1000; // lignes de sites affichées d'un coup
@@ -248,7 +250,7 @@ function setGroupBusy(value) {
   gfilesInput.disabled = value;
   if (value) gsaveButton.disabled = true;
   // le décor (halos, bandeau, scintillement) se met en pause pendant le traitement
-  if (document.body && document.body.classList) document.body.classList.toggle('busy', value);
+  if (document.body && document.body.classList) document.body.classList.toggle('is-busy', value);
 }
 
 function replaceSites(list) {
@@ -576,139 +578,13 @@ gregexInput.addEventListener('input', () => {
 });
 
 /* ==================================================================
- * Décor — fil de progression, apparitions, halo des cartes, compteurs,
- * démonstration qui s’écrit toute seule, glisser-déposer, boutons copier.
- * Tout est facultatif : sans ces API, la page reste identique et sans
- * animation (et les tests tournent sur un DOM simulé, donc rien n’y touche).
+ * Décor propre à cet outil — glisser-déposer d'un .txt sur la zone de
+ * dépôt. Le reste (sélecteur d'outil, fil de lecture, apparitions, halo
+ * des cartes, compteurs, démonstration qui s'écrit, boutons copier) est
+ * partagé par toutes les pages : voir public/chrome.js.
  * ================================================================== */
 
-const qsa = (selector, root = document) =>
-  (typeof root.querySelectorAll === 'function' ? [...root.querySelectorAll(selector)] : []);
-
-/** Fil de lecture en haut de page + ombre de l’en-tête collant. */
-function initScrollLine() {
-  const fill = qsa('.scroll-line-fill')[0];
-  const root = document.documentElement;
-  if (!fill || !root) return;
-  const onScroll = () => {
-    const max = root.scrollHeight - root.clientHeight;
-    const top = root.scrollTop || 0;
-    const ratio = max > 0 ? Math.min(1, Math.max(0, top / max)) : 0;
-    fill.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
-    document.body.classList.toggle('is-scrolled', top > 8);
-  };
-  document.addEventListener('scroll', onScroll, { passive: true });
-  onScroll();
-}
-
-/** Apparition des sections au défilement, légèrement décalée. */
-function initReveal() {
-  const items = qsa('.reveal');
-  if (!items.length) return;
-  items.forEach((item, index) => {
-    if (item.style && item.style.setProperty) item.style.setProperty('--i', String(Math.min(index, 6)));
-  });
-  if (typeof IntersectionObserver !== 'function') {
-    items.forEach((item) => item.classList.add('in'));
-    return;
-  }
-  const observer = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      entry.target.classList.add('in');
-      observer.unobserve(entry.target);
-    }
-  }, { rootMargin: '0px 0px -6% 0px', threshold: 0.05 });
-  items.forEach((item) => observer.observe(item));
-  // filet de sécurité : jamais de contenu resté invisible
-  setTimeout(() => items.forEach((item) => item.classList.add('in')), 2500);
-}
-
-/** Halo qui suit le curseur sur les cartes (une seule frame en attente). */
-function initSpotlight() {
-  const cards = qsa('.card');
-  if (!cards.length) return;
-  if (typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches === false) return;
-  let frame = 0;
-  let pending = null;
-  const flush = () => {
-    frame = 0;
-    if (!pending) return;
-    const { card, x, y } = pending;
-    pending = null;
-    card.style.setProperty('--mx', x + 'px');
-    card.style.setProperty('--my', y + 'px');
-  };
-  const onMove = (event) => {
-    const card = event.currentTarget;
-    const box = card.getBoundingClientRect();
-    pending = { card, x: event.clientX - box.left, y: event.clientY - box.top };
-    if (!frame) frame = requestAnimationFrame(flush);
-  };
-  const onLeave = (event) => {
-    event.currentTarget.style.setProperty('--mx', '50%');
-    event.currentTarget.style.setProperty('--my', '0%');
-  };
-  for (const card of cards) {
-    card.addEventListener('pointermove', onMove);
-    card.addEventListener('pointerleave', onLeave);
-  }
-}
-
-/** Compteurs du haut de page qui montent jusqu’à leur valeur. */
-function initCounters() {
-  const items = qsa('[data-count]');
-  if (!items.length || typeof IntersectionObserver !== 'function') return;
-  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const observer = new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (!entry.isIntersecting) continue;
-      observer.unobserve(entry.target);
-      countUp(entry.target, reduced);
-    }
-  }, { threshold: 0.4 });
-  items.forEach((item) => observer.observe(item));
-}
-
-function countUp(node, instant) {
-  const target = Number(node.getAttribute('data-count')) || 0;
-  if (instant || typeof requestAnimationFrame !== 'function') {
-    node.textContent = n(target);
-    return;
-  }
-  const duration = 900;
-  const start = performance.now();
-  const step = (now) => {
-    const ratio = Math.min(1, (now - start) / duration);
-    const eased = 1 - Math.pow(1 - ratio, 3);
-    node.textContent = n(Math.round(target * eased));
-    if (ratio < 1) requestAnimationFrame(step);
-    else node.textContent = n(target);
-  };
-  node.textContent = '0';
-  requestAnimationFrame(step);
-}
-
-/** La sortie de la démonstration s’écrit caractère par caractère. */
-function initDemoTyping() {
-  const pre = el('demoIn');
-  if (!pre || typeof requestAnimationFrame !== 'function') return;
-  const full = String(pre.textContent || '');
-  if (!full.trim()) return;
-  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  let index = 0;
-  pre.textContent = '';
-  pre.classList.add('typing');
-  const tick = () => {
-    index = Math.min(full.length, index + 2);
-    pre.textContent = full.slice(0, index);
-    if (index < full.length) setTimeout(tick, 24);
-    else pre.classList.remove('typing');
-  };
-  setTimeout(tick, 420);
-}
-
-/** Glisser-déposer d’un .txt directement sur la zone de fichier. */
+/** Glisser-déposer d'un .txt directement sur la zone de fichier. */
 function initDrop() {
   const zone = gfileInput && gfileInput.closest ? gfileInput.closest('.drop') : null;
   if (!zone) return;
@@ -730,60 +606,6 @@ function initDrop() {
   });
 }
 
-/** Boutons « copier » des blocs de commandes. */
-function initCopy() {
-  for (const button of qsa('button[data-copy]')) {
-    button.addEventListener('click', async () => {
-      const card = button.closest ? button.closest('.code-card') : null;
-      const code = card ? card.querySelector('pre') : null;
-      const ok = await copyText(code ? code.textContent : '');
-      button.textContent = ok ? 'Copied' : 'Copy failed';
-      button.classList.toggle('is-ok', ok);
-      setTimeout(() => {
-        button.textContent = 'Copy';
-        button.classList.remove('is-ok');
-      }, 1600);
-    });
-  }
-}
-
-async function copyText(text) {
-  if (!text) return false;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // permission refusée ou contexte non sécurisé : on passe au repli
-    }
-  }
-  try {
-    const area = document.createElement('textarea');
-    area.value = text;
-    area.setAttribute('readonly', '');
-    area.style.position = 'fixed';
-    area.style.top = '-1000px';
-    document.body.appendChild(area);
-    area.select();
-    const ok = document.execCommand('copy');
-    area.remove();
-    return ok;
-  } catch {
-    return false;
-  }
-}
-
-function initDecor() {
-  if (typeof document.querySelectorAll !== 'function') return; // DOM simulé : rien à décorer
-  initScrollLine();
-  initReveal();
-  initSpotlight();
-  initCounters();
-  initDemoTyping();
-  initDrop();
-  initCopy();
-}
-
 /* ================= démarrage ================= */
 
 metaEl.textContent = dirParam ? 'Server-side processing · ?dir=' + dirParam : 'Local processing · no upload';
@@ -792,4 +614,4 @@ if (dirParam) {
 }
 renderSites();
 ensureWorker();
-initDecor();
+initDrop();

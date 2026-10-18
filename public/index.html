@@ -1,50 +1,80 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="void">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>zach-db — group by site</title>
-<meta name="description" content="Group large .txt files by site and extract xxxx:xxxx pairs. Everything runs in your browser; your files are never uploaded.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000'/><circle cx='15' cy='11' r='3.1' fill='%23fff'/><circle cx='15' cy='21' r='3.1' fill='%23fff'/><rect x='20.5' y='8' width='5' height='16' rx='2.5' fill='%23fff'/></svg>">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#050505">
+<title>zach-db — tools by zach</title>
+<meta name="description" content="zach-db — tools by zach.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='11' fill='%23050505'/><circle cx='24' cy='24' r='20' fill='none' stroke='%23fff' stroke-width='1.6' stroke-dasharray='3 5' opacity='.7'/><circle cx='24' cy='24' r='15' fill='none' stroke='%23fff' stroke-width='1.8'/><path d='M17 18.5h14L17 29.5h14' fill='none' stroke='%23fff' stroke-width='3'/><circle cx='24' cy='24' r='2.2' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="/styles.css">
 <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
 
-<a class="skip" href="#process">Skip to processing</a>
+<a class="skip" href="#top">Skip to the content</a>
 
-<!-- ==================== décor ambiant (non lu) ==================== -->
+<!-- ==================== décor : halos, grain, fond animé ==================== -->
 <div class="ambient" aria-hidden="true">
-  <span class="ambient-grid"></span>
   <span class="ambient-glow"></span>
   <span class="ambient-glow ambient-glow--2"></span>
   <span class="ambient-noise"></span>
 </div>
+<canvas class="void-canvas" id="voidCanvas" aria-hidden="true"></canvas>
 <span class="scroll-line" aria-hidden="true"><i class="scroll-line-fill"></i></span>
 
 <!-- ==================== en-tête ==================== -->
 <header class="site-head">
   <div class="wrap head-inner">
-    <a class="brand" href="#top">
+    <a class="brand" href="/" aria-current="page">
       <span class="mark" aria-hidden="true">
-        <span class="mark-glyph">z</span>
-        <span class="mark-dot"></span>
+        <svg class="logo" viewBox="0 0 48 48" focusable="false">
+          <circle class="logo-ring" cx="24" cy="24" r="21.4"/>
+          <circle class="logo-orbit" cx="24" cy="24" r="16"/>
+          <path class="logo-z" d="M16.5 17.6h15L16.5 30.4h15"/>
+          <circle class="logo-node" cx="24" cy="24" r="2.2"/>
+        </svg>
       </span>
       <span class="brand-text">
         <strong>zach-db</strong>
-        <span class="brand-sub">Group large <code>.txt</code> files by site</span>
+        <span class="brand-sub">tools by zach</span>
       </span>
     </a>
 
-    <nav class="nav" aria-label="Sections">
-      <a href="#process">Process</a>
-      <a href="#sites">Sites</a>
-      <a href="#api">API</a>
-      <a href="#cli">CLI</a>
-    </nav>
+    <!-- seule porte vers les outils : un <details>, donc ouvert même sans JavaScript -->
+    <details class="toolswitch" id="toolSwitcher">
+      <summary class="toolswitch-btn" id="toolSwitcherBtn" title="Choose a tool">
+        <span class="toolswitch-text">
+          <span class="toolswitch-kicker">Tool</span>
+          <span class="toolswitch-name" id="toolSwitcherName">All tools</span>
+        </span>
+        <svg class="toolswitch-caret" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </summary>
+      <div class="toolswitch-menu" id="toolMenu" role="menu" aria-label="Choose a tool">
+        <p class="toolswitch-title"><span>Tools</span><b>2 online</b></p>
+        <a class="tool-item" role="menuitem" href="/" aria-current="page">
+          <span class="tool-item-text"><strong>All tools</strong><em>the whole collection</em></span>
+          <span class="tool-item-mark" aria-hidden="true">open</span>
+        </a>
+        <a class="tool-item" role="menuitem" href="/tools/group-by-site/">
+          <span class="tool-item-text"><strong>Combos — group by site</strong><em>Sort huge .txt dumps by site, then pull out the values of any site you click.</em></span>
+          <span class="tool-item-mark" aria-hidden="true">go</span>
+        </a>
+        <a class="tool-item" role="menuitem" href="/tools/discord-lookup/">
+          <span class="tool-item-text"><strong>Discord lookup</strong><em>Paste a user ID and read everything Discord exposes: profile, badges, assets, creation date, mutual servers.</em></span>
+          <span class="tool-item-mark" aria-hidden="true">go</span>
+        </a>
+      </div>
+    </details>
 
-    <p class="local-note"><span class="pulse" aria-hidden="true"></span>Local processing — your files are never uploaded</p>
+    <nav class="nav" aria-label="Sections">
+      <a href="#signal">Signal</a>
+      <a href="#top">Top</a>
+    </nav>
 
     <a class="discord-link" href="https://discord.gg/uKZAZS8kY9" target="_blank" rel="noopener noreferrer" aria-label="Join the Discord server (opens in a new tab)">
       <svg class="discord-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -61,225 +91,82 @@
 <main id="top">
 
   <!-- ==================== accroche ==================== -->
-  <section class="hero">
+  <section class="hero hero-void">
     <div class="wrap hero-grid">
 
-      <div class="hero-copy">
-        <p class="eyebrow"><span>web worker</span><span>line-by-line streaming</span><span>zero dependencies</span></p>
+      <div class="hero-copy reveal">
+        <p class="kicker"><b>zach-db</b></p>
 
-        <h1>Group by site,<br><span class="shimmer">line by line.</span></h1>
+        <h1>
+          <span class="line">Pure signal,</span>
+          <span class="line"><span class="shimmer">no noise.</span></span>
+        </h1>
 
-        <p class="lead">
-          Drop one or more <code>.txt</code> files: each line is grouped by site
-          (<code>roblox.com</code>, <code>netflix.com</code>…), and <code>xxxx:xxxx</code> pairs
-          are extracted. Your files never leave the browser.
-        </p>
+        <p class="decode" data-decode="TOOLS BY ZACH">TOOLS BY ZACH</p>
 
-        <p class="cta">
-          <a class="btn btn-solid" href="#process"><span>Choose files</span></a>
-          <a class="btn" href="#api"><span>View the API</span></a>
-        </p>
-
-        <dl class="specs">
-          <div><dt>measured throughput</dt><dd><b data-count="230">230</b> MB/s</dd></div>
-          <div><dt>tests</dt><dd><b data-count="51">51</b></dd></div>
-          <div><dt>dependencies</dt><dd><b data-count="0">0</b></dd></div>
-          <div><dt>network transfer</dt><dd><b data-count="0">0</b> bytes</dd></div>
-        </dl>
+        <a class="cue" href="#signal"><span class="cue-line" aria-hidden="true"></span>Scroll</a>
       </div>
 
-      <aside class="demo" aria-hidden="true">
-        <div class="demo-bar">
-          <span class="leds"><i></i><i></i><i></i></span>
-          <span class="demo-title">demo</span>
-          <span class="chip-tag">local</span>
+      <div class="hero-instrument reveal">
+        <div class="core" aria-hidden="true">
+          <canvas class="core-canvas" id="coreCanvas"></canvas>
+          <span class="core-ring"></span>
+          <span class="core-ring core-ring--spin"></span>
+          <span class="core-ticks"></span>
+          <span class="core-logo">
+            <svg class="logo" viewBox="0 0 48 48" focusable="false">
+              <circle class="logo-ring" cx="24" cy="24" r="21.4"/>
+              <circle class="logo-orbit" cx="24" cy="24" r="16"/>
+              <path class="logo-z" d="M16.5 17.6h15L16.5 30.4h15"/>
+              <circle class="logo-node" cx="24" cy="24" r="2.2"/>
+            </svg>
+          </span>
         </div>
-
-        <div class="demo-col">
-          <p class="demo-label">input.txt</p>
-          <pre class="demo-pre" id="demoIn">https://www.roblox.com/x:Thou_miriba:N2Z6PQXg4XLnTSi
-http://www.netflix.com/y:user1:pass1
-https://account.roblox.com/z:user2:pass2</pre>
-        </div>
-
-        <div class="demo-col demo-out">
-          <p class="demo-label">sites found</p>
-          <ul class="demo-list">
-            <li style="--d:0.05s"><span>roblox.com</span><b>2</b></li>
-            <li style="--d:0.18s"><span>netflix.com</span><b>1</b></li>
-          </ul>
-          <p class="demo-foot">click <b>roblox.com</b> → <code>Thou_miriba:N2Z6PQXg4XLnTSi</code></p>
-        </div>
-      </aside>
+      </div>
 
     </div>
   </section>
+
+  <!-- ==================== télémétrie ==================== -->
+  <div class="telemetry reveal" aria-hidden="true">
+    <div class="tel">
+      <p class="tel-item"><span class="tel-key">local time</span><span class="tel-val" id="telClock">00:00:00</span></p>
+      <p class="tel-item"><span class="tel-key">frame rate</span><span class="tel-val" id="telFps">-- fps</span></p>
+      <p class="tel-item"><span class="tel-key">dust</span><span class="tel-val" id="telDust">--</span></p>
+      <p class="tel-item"><span class="tel-key">pointer</span><span class="tel-val" id="telPointer">0.50 / 0.50</span></p>
+      <p class="tel-item"><span class="tel-key">uptime</span><span class="tel-val" id="telUptime">00:00</span></p>
+      <p class="tel-item"><span class="tel-key">signal</span><span class="sig"><i></i><i></i><i></i><i></i><i></i></span></p>
+    </div>
+  </div>
 
   <!-- ==================== bandeau défilant ==================== -->
   <div class="marquee" aria-hidden="true">
     <div class="marquee-track">
       <span class="marquee-group">
-        <i>group by site</i><i>xxxx:xxxx</i><i>230 MB/s</i><i>web worker</i><i>line-by-line streaming</i>
-        <i>zero network transfer</i><i>dependency-free</i><i>.txt output</i><i>custom regex</i><i>deduplication</i>
+        <i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i>
+        <i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i>
       </span>
       <span class="marquee-group">
-        <i>group by site</i><i>xxxx:xxxx</i><i>230 MB/s</i><i>web worker</i><i>line-by-line streaming</i>
-        <i>zero network transfer</i><i>dependency-free</i><i>.txt output</i><i>custom regex</i><i>deduplication</i>
+        <i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i>
+        <i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i>
       </span>
     </div>
   </div>
 
-  <!-- ==================== traitement ==================== -->
-  <section class="stage" id="process">
-
-    <form id="groupForm">
-
-      <!-- ---------- 01 — source ---------- -->
-      <article class="panel card reveal">
-        <h2 class="panel-title"><span class="num">01</span><span class="panel-name">Source</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">your files stay on your device</span></h2>
-
-        <div class="drop">
-          <input type="file" id="gfile" accept=".txt,text/plain" multiple>
-          <p class="drop-hint"><span class="drop-key">Drag and drop</span> or click to browse — multiple <code>.txt</code> files supported</p>
-        </div>
-
-        <textarea id="gfiles" rows="3" spellcheck="false"
-          placeholder="or paste a list of filenames, one per line (server directory via ?dir=...)"></textarea>
-      </article>
-
-      <!-- ---------- 02 — extraction ---------- -->
-      <article class="panel card reveal">
-        <h2 class="panel-title"><span class="num">02</span><span class="panel-name">Extraction</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">what to keep from each line</span></h2>
-
-        <div class="grid-2">
-          <fieldset>
-            <legend>Mode</legend>
-            <label class="opt"><input type="radio" name="gmode" value="last" checked><span class="opt-text">last <code>a:b</code> pair on each line<em>default</em></span></label>
-            <label class="opt"><input type="radio" name="gmode" value="first"><span class="opt-text">first <code>a:b</code> pair on each line</span></label>
-            <label class="opt"><input type="radio" name="gmode" value="longest"><span class="opt-text">longest pair</span></label>
-            <label class="opt"><input type="radio" name="gmode" value="all"><span class="opt-text">all pairs</span></label>
-            <label class="opt"><input type="radio" name="gmode" value="custom"><span class="opt-text">custom regex</span></label>
-            <input type="text" id="gregex" spellcheck="false"
-              placeholder="([a-z0-9._-]+):([a-z0-9._-]+)">
-          </fieldset>
-
-          <div class="options-side">
-            <p class="side-title">Grouping options</p>
-
-            <label class="check">
-              <input type="checkbox" id="gsub" checked>
-              <span class="check-text">Group subdomains
-                <em><code>www.roblox.com</code> and <code>account.roblox.com</code> → <code>roblox.com</code></em>
-              </span>
-            </label>
-
-            <label class="check">
-              <input type="checkbox" id="gdedupe">
-              <span class="check-text">Remove duplicates within each site</span>
-            </label>
-
-            <label class="check">
-              <input type="checkbox" id="ghosts">
-              <span class="check-text">Keep <code>domain.tld:port</code> values from URLs
-                <em>ignored by default: this is a port, not a pair</em>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <div class="buttons">
-          <button type="submit" id="gscan"><span>Group by site</span></button>
-          <button type="button" id="gcancel" disabled><span>Cancel</span></button>
-        </div>
-
-        <div class="progress" id="gprogress" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-          aria-valuenow="0" aria-label="Processing progress" hidden>
-          <div class="progress-track"><div class="progress-fill" id="gbar"></div></div>
-          <span class="progress-pct" id="gpct">0 lines · 0%</span>
-        </div>
-
-        <p id="gstatus" class="status" role="status">Ready.</p>
-      </article>
-
-    </form>
-  </section>
-
-  <!-- ==================== sites trouvés ==================== -->
-  <section class="stage" id="sites">
-    <article class="panel card reveal" id="glistBox">
-      <h2 class="panel-title"><span class="num">03</span><span class="panel-name">Sites found</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">click a site to open it</span></h2>
-
-      <div class="stats">
-        <div class="stat"><strong id="statSites">0</strong><span>sites</span></div>
-        <div class="stat"><strong id="statValues">0</strong><span>values</span></div>
-        <div class="stat"><strong id="statLines">0</strong><span>lines read</span></div>
-        <div class="stat"><strong id="statBytes">0.0 MB</strong><span>data read</span></div>
-      </div>
-
-      <div class="filter">
-        <span class="filter-mark" aria-hidden="true">/</span>
-        <input type="search" id="gfilter" placeholder="Filter sites (e.g. roblox)" autocomplete="off">
-      </div>
-
-      <p id="gsummary">—</p>
-      <ul id="gsites" class="sites"></ul>
-    </article>
-  </section>
-
-  <!-- ==================== valeurs d’un site ==================== -->
-  <section class="stage">
-    <article id="gresult" class="result card" hidden>
-      <div class="result-head">
-        <h2 id="gtitre">Site</h2>
-        <div class="buttons">
-          <button type="button" id="gsave" disabled><span>Download .txt</span></button>
-          <button type="button" id="gprev"><span>Back to list</span></button>
-        </div>
-      </div>
-      <pre id="gtext"></pre>
-      <p id="gwarn" class="note" hidden></p>
-    </article>
-  </section>
-
-  <!-- ==================== api & cli ==================== -->
-  <section class="stage docs">
-
-    <details class="doc card reveal" id="api">
-      <summary><span class="doc-name">Server API</span><span class="doc-sub">curl — list sites or fetch one site</span><span class="doc-mark" aria-hidden="true"></span></summary>
-      <div class="code-card">
-        <div class="code-head"><span>Site list with counts</span><button type="button" class="copy" data-copy>Copy</button></div>
-<pre>curl -X POST --data-binary @file.txt 'https://YOUR-APP.onrender.com/api/group'
-curl -X POST --data-binary @file.txt 'https://YOUR-APP.onrender.com/api/group?format=tsv'</pre>
-      </div>
-      <div class="code-card">
-        <div class="code-head"><span>All values for one site</span><button type="button" class="copy" data-copy>Copy</button></div>
-<pre>curl -X POST --data-binary @file.txt \
-  'https://YOUR-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt</pre>
-      </div>
-    </details>
-
-    <details class="doc card reveal" id="cli">
-      <summary><span class="doc-name">CLI</span><span class="doc-sub">list sites, fetch one site, or split into files</span><span class="doc-mark" aria-hidden="true"></span></summary>
-      <div class="code-card">
-        <div class="code-head"><span>Group by site from the command line</span><button type="button" class="copy" data-copy>Copy</button></div>
-<pre>node cli.js large.txt --group                       # sites + counts
-node cli.js large.txt --group --site=roblox.com -o roblox.txt
-node cli.js large.txt --group --split=sites/      # one .txt file per site</pre>
-      </div>
-    </details>
-
+  <!-- ==================== oscilloscope ==================== -->
+  <section class="signal reveal" id="signal">
+    <canvas class="signal-canvas" id="signalCanvas" aria-hidden="true"></canvas>
   </section>
 
 </main>
 
 <footer class="site-foot">
   <div class="wrap foot-inner">
-    <p class="foot-brand" aria-hidden="true">zach-db</p>
-    <p class="foot-line"><span>web worker + line-by-line streaming</span><span id="meta"></span></p>
-    <p class="foot-line"><span>Black-and-white design; no emoji or external fonts</span><span>MIT</span></p>
+    <p class="ghost-row" aria-hidden="true"><span class="ghost-word">tools</span><span class="ghost-word">by</span><span class="ghost-word">zach</span></p>
+    <p class="foot-line"><span>tools by zach</span><span>MIT</span></p>
   </div>
 </footer>
 
-<script src="/app.js" type="module"></script>
+<script src="/home.js" type="module"></script>
 </body>
 </html>
