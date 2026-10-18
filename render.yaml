@@ -30,7 +30,7 @@ services:
       - key: GUNS_ROUNDS
         value: "1"
       - key: GUNS_PROXIES
-        value: "1500"
+        value: "6000"
       - key: GUNS_CONCURRENCY
         value: "6"
       - key: GUNS_TIMEOUT_MS
@@ -46,4 +46,4 @@ services:
       - key: GUNS_VALIDATE_MAX
         value: "0"
       - key: GUNS_PROXY_PER_SOURCE
-        value: "400"
+        value: "1500"
