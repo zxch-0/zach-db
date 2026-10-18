@@ -2464,27 +2464,6 @@ html.js .reveal.in {
   .sites li { gap: 10px; padding: 10px 13px; }
 }
 
-/* ==========================================================================
-   mouvement réduit
-   ========================================================================== */
-
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
-  .ambient-glow, .marquee-track, .shimmer, .progress-fill::after, .toolswitch-menu,
-  .logo-ring, .logo-node, .core-ring--spin, .core-ticks, .sig i, .cue-line::after,
-  h1 .line { animation: none !important; }
-  html.void h1 .line { opacity: 1; transform: none; }
-  .marquee-track { transform: none; }
-  .demo-list li, .demo-foot { opacity: 1; transform: none; }
-  html.js .reveal { opacity: 1; transform: none; }
-  .card::after { display: none; }
-}
-
 /* ---- pause du décor pendant un gros traitement ---- */
 
 body.is-busy .ambient-glow,

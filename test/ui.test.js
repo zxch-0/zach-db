@@ -27,6 +27,7 @@ const home = TEXTS.home;
 const lookup = TEXTS.lookup;
 const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
 const chrome = fs.readFileSync(path.join(ROOT, 'public/chrome.js'), 'utf8');
+const homeScript = fs.readFileSync(path.join(ROOT, 'public/home.js'), 'utf8');
 
 const ids = [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]);
 
@@ -188,14 +189,15 @@ test('home.js dessine ses trois calques, décode sa ligne et remplit la télém�
   decodeNode.attributes.set('data-decode', decodeText);
   document.querySelectorAll = (selector) => (selector === '[data-decode]' ? [decodeNode] : []);
 
-  // mouvement réduit : le moteur doit composer une image fixe, sans minuterie
+  // Sans requestAnimationFrame dans ce DOM simulé, le moteur doit rester lisible
+  // avec une image fixe ; la préférence système n'est plus consultée.
   globalThis.matchMedia = (query) => ({ media: query, matches: /reduced-motion/.test(query) });
 
   await import('../public/home.js?smoke=1');
 
-  assert.equal(decodeNode.textContent, decodeText, 'la ligne décodée retombe sur son texte');
+  assert.equal(decodeNode.textContent, decodeText, 'sans rAF, la ligne décodée reste lisible');
   assert.match(nodes.get('telClock').textContent, /^\d{2}:\d{2}:\d{2}$/, 'heure locale affichée');
-  assert.equal(nodes.get('telFps').textContent, 'still frame', 'mouvement réduit : image fixe annoncée');
+  assert.equal(nodes.get('telFps').textContent, 'still frame', 'sans rAF, l’image fixe est annoncée');
   assert.equal(nodes.get('telPointer').textContent, '0.50 / 0.50', 'pointeur au centre par défaut');
   assert.equal(Number(nodes.get('telDust').textContent.replace(/[^0-9]/g, '')) > 20, true,
     'poussière comptée');
@@ -341,8 +343,9 @@ test('la décoration reste sobre, accessible et sans ressource distante', () => 
   assert.match(home, /<meta name="color-scheme" content="dark">/);
   assert.match(html, /<meta name="color-scheme" content="light dark">/);
 
-  // les animations se coupent quand l’utilisateur le demande
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, 'mouvement réduit géré');
+  // le réglage système de mouvement réduit n'annule plus les animations
+  assert.doesNotMatch(css, /prefers-reduced-motion/, 'le CSS ne fige plus les animations selon le système');
+  assert.doesNotMatch(homeScript + chrome, /prefers-reduced-motion/, 'le JavaScript ignore ce réglage');
   // le thème sombre est la base ; le clair suit le système, sauf sur l'accueil
   assert.match(css, /@media \(prefers-color-scheme: light\) \{\s*:root:not\(\.void\)/,
     'thème clair réservé aux pages qui suivent le système');

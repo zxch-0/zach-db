@@ -189,20 +189,19 @@ const n = (value) => fmt.format(value);
 function initCounters() {
   const items = qsa('[data-count]');
   if (!items.length || typeof IntersectionObserver !== 'function') return;
-  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       observer.unobserve(entry.target);
-      countUp(entry.target, reduced);
+      countUp(entry.target);
     }
   }, { threshold: 0.4 });
   items.forEach((item) => observer.observe(item));
 }
 
-function countUp(node, instant) {
+function countUp(node) {
   const target = Number(node.getAttribute('data-count')) || 0;
-  if (instant || typeof requestAnimationFrame !== 'function') {
+  if (typeof requestAnimationFrame !== 'function') {
     node.textContent = n(target);
     return;
   }
@@ -223,7 +222,6 @@ function countUp(node, instant) {
 function initTyping() {
   const blocks = qsa('[data-typing]');
   if (!blocks.length || typeof requestAnimationFrame !== 'function') return;
-  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   blocks.forEach((pre, index) => {
     const full = String(pre.textContent || '');
     if (!full.trim()) return;

@@ -191,16 +191,28 @@ test('la grille de fond défile vraiment vers l’horizon', async () => {
   assert.ok(opsOf('voidCanvas').some((op) => op.startsWith('fillRect(')), 'poussière dessinée');
 });
 
-test('mouvement réduit : une image fixe, aucune boucle', async () => {
+test('le réglage système « mouvement réduit » ne fige plus l’animation', async () => {
   globalThis.matchMedia = (query) => ({ media: query, matches: /reduced-motion/.test(query) });
   const queued = rafQueue.length;
-  for (const id of CANVASES) recorders.get(id).ops.length = 0;
 
   await import('../public/home.js?still=1');
 
-  assert.equal(rafQueue.length, queued, 'aucune boucle ne démarre si le système demande moins de mouvement');
+  assert.equal(rafQueue.length, queued + 1, 'la boucle démarre même si le système demande moins de mouvement');
+
+  // Exécute deux frames du nouveau moteur (les boucles précédentes restent en file).
+  const drawNext = () => {
+    for (const id of CANVASES) recorders.get(id).ops.length = 0;
+    const callback = rafQueue.pop();
+    assert.equal(typeof callback, 'function', 'la frame suivante est bien programmée');
+    clock += 16.7;
+    callback(clock);
+    return Object.fromEntries(CANVASES.map((id) => [id, signature(id)]));
+  };
+  const first = drawNext();
+  const second = drawNext();
   for (const id of CANVASES) {
-    assert.ok(opsOf(id).length > 60, id + ' : l’image fixe n’est pas composée');
+    assert.ok(first[id].length > 0, id + ' : premier frame dessiné');
+    assert.notEqual(first[id], second[id], id + ' : le mouvement réduit ne fige pas le calque');
   }
 });
 

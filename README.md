@@ -77,15 +77,15 @@ S'y ajoutent une ligne monospace qui **se décode** caractère par caractère
 poussière, pointeur, temps écoulé), un bandeau défilant et un balayage CRT très
 discret. Rien d'autre : la page ne se décrit pas, elle ne parle pas des outils —
 il n'y a ni paragraphe explicatif, ni légende, ni manifeste.
-`prefers-reduced-motion` fige tout sur une image fixe composée ; sans canvas ni
-JavaScript, la page reste noire et lisible.
+Les animations restent actives même si le système demande de réduire les
+mouvements ; sans canvas ni JavaScript, la page reste noire et lisible.
 
 `test/home.test.js` rejoue la boucle dans Node (horloge et `requestAnimationFrame`
 virtuels, contexte 2D qui enregistre les tracés au lieu de les dessiner) : il
 vérifie que les trois calques produisent une image **différente à chaque frame**,
 que les lignes de la grille défilent vraiment vers l'horizon, que la boucle se
-réarme, et qu'en mouvement réduit une image fixe est composée sans qu'aucune
-boucle ne démarre.
+réarme. Un test vérifie aussi que le réglage système « mouvement réduit »
+ne fige plus l'animation.
 
 **Le menu déroulant** (un `<details>`, donc ouvert même sans JavaScript) est la
 seule citation des outils sur l'accueil. Il est présent sur toutes les pages :
