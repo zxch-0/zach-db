@@ -371,6 +371,52 @@ body.is-scrolled .site-head {
   color: var(--ink-soft);
 }
 
+/* ==========================================================================
+   bascule de mouvement — le système décide, le visiteur peut trancher
+   (public/lib/motion.js pose motion-live ou motion-still sur <html>)
+   ========================================================================== */
+
+.motion-switch {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  flex: none;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--hair-2);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.motion-switch:hover { border-color: var(--ink-soft); color: var(--ink); }
+
+.motion-switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.motion-key {
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.motion-val { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; }
+
+/* cran forcé : la bascule passe en négatif, comme le reste du site */
+html.motion-live .motion-switch,
+html.motion-still .motion-switch {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+html.motion-live .motion-key,
+html.motion-still .motion-key { opacity: 0.72; }
+
 /* ---------- sélecteur d'outil ----------
    Sans JavaScript c'est un lien vers l'accueil (qui liste déjà les outils) ;
    avec JavaScript il ouvre le menu construit depuis public/lib/tools.js. */
@@ -2428,6 +2474,8 @@ html.js .reveal.in {
   .toolswitch-kicker { display: none; }
   .toolswitch-name { max-width: 18ch; font-size: 11.5px; }
   .toolswitch-btn { gap: 7px; min-height: 28px; padding: 4px 9px 4px 11px; }
+  .motion-switch { gap: 0; min-height: 28px; padding: 4px 10px; }
+  .motion-key { display: none; }
   .discord-logo { width: 13px; height: 13px; }
   .discord-arrow { width: 9px; height: 9px; }
 }
@@ -2443,6 +2491,7 @@ html.js .reveal.in {
   .panel-hint { display: none; }
   .head-inner { flex-wrap: wrap; gap: 10px 14px; }
   .toolswitch { order: 1; margin-left: auto; }
+  .motion-switch { order: 1; }
   .toolswitch-menu { width: min(340px, calc(100vw - 28px)); }
   .crumb { margin-bottom: 14px; font-size: 9.5px; letter-spacing: 0.11em; }
   .core { width: min(86%, 320px); }
@@ -2466,24 +2515,88 @@ html.js .reveal.in {
 
 /* ==========================================================================
    mouvement réduit
-   ========================================================================== */
+   ==========================================================================
+   Le réglage du système gèle le décor, et rien n'est perdu : chaque bloc figé
+   reste lisible. Deux classes peuvent trancher autrement, posées par la bascule
+   d'en-tête — motion-live libère tout (même sous système réduit), motion-still
+   gèle tout (même si le système autorise le mouvement). Les deux jeux de règles
+   ci-dessous sont strictement parallèles : test/motion.test.js y veille. */
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
+  html:not(.motion-live) { scroll-behavior: auto; }
+  html:not(.motion-live) *,
+  html:not(.motion-live) *::before,
+  html:not(.motion-live) *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-  .ambient-glow, .marquee-track, .shimmer, .progress-fill::after, .toolswitch-menu,
-  .logo-ring, .logo-node, .core-ring--spin, .core-ticks, .sig i, .cue-line::after,
-  h1 .line { animation: none !important; }
-  html.void h1 .line { opacity: 1; transform: none; }
-  .marquee-track { transform: none; }
-  .demo-list li, .demo-foot { opacity: 1; transform: none; }
-  html.js .reveal { opacity: 1; transform: none; }
-  .card::after { display: none; }
+  html:not(.motion-live) .ambient-glow,
+  html:not(.motion-live) .marquee-track,
+  html:not(.motion-live) .shimmer,
+  html:not(.motion-live) .progress-fill::after,
+  html:not(.motion-live) .toolswitch-menu,
+  html:not(.motion-live) .logo-ring,
+  html:not(.motion-live) .logo-node,
+  html:not(.motion-live) .core-ring--spin,
+  html:not(.motion-live) .core-ticks,
+  html:not(.motion-live) .sig i,
+  html:not(.motion-live) .cue-line::after,
+  html:not(.motion-live) h1 .line { animation: none !important; }
+  html.void:not(.motion-live) h1 .line {
+    opacity: 1;
+    transform: none;
+  }
+  html:not(.motion-live) .marquee-track { transform: none; }
+  html:not(.motion-live) .demo-list li,
+  html:not(.motion-live) .demo-foot {
+    opacity: 1;
+    transform: none;
+  }
+  html.js:not(.motion-live) .reveal {
+    opacity: 1;
+    transform: none;
+  }
+  html:not(.motion-live) .card::after { display: none; }
 }
+
+/* ---- le visiteur a demandé le gel : mêmes règles, quel que soit le système ---- */
+
+html.motion-still { scroll-behavior: auto; }
+html.motion-still *,
+html.motion-still *::before,
+html.motion-still *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+html.motion-still .ambient-glow,
+html.motion-still .marquee-track,
+html.motion-still .shimmer,
+html.motion-still .progress-fill::after,
+html.motion-still .toolswitch-menu,
+html.motion-still .logo-ring,
+html.motion-still .logo-node,
+html.motion-still .core-ring--spin,
+html.motion-still .core-ticks,
+html.motion-still .sig i,
+html.motion-still .cue-line::after,
+html.motion-still h1 .line { animation: none !important; }
+html.void.motion-still h1 .line {
+  opacity: 1;
+  transform: none;
+}
+html.motion-still .marquee-track { transform: none; }
+html.motion-still .demo-list li,
+html.motion-still .demo-foot {
+  opacity: 1;
+  transform: none;
+}
+html.js.motion-still .reveal {
+  opacity: 1;
+  transform: none;
+}
+html.motion-still .card::after { display: none; }
 
 /* ---- pause du décor pendant un gros traitement ---- */
 

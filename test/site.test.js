@@ -72,6 +72,7 @@ test('l\'accueil est une vitrine, la page outil porte le traitement', async () =
     ['/worker.js', /javascript/],
     ['/lib/parse.js', /javascript/],
     ['/lib/tools.js', /javascript/],
+    ['/lib/motion.js', /javascript/],
     ['/lookup.js', /javascript/],
     ['/lib/discord.js', /javascript/],
     ['/lib/discord-api.js', /javascript/],

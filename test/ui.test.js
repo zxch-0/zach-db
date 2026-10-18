@@ -307,6 +307,7 @@ test('aucun emoji dans le site', () => {
     'public/home.js',
     'public/lookup.js',
     'public/chrome.js',
+    'public/lib/motion.js',
     'public/worker.js',
     'public/lib/parse.js',
     'public/lib/group.js',

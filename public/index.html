@@ -9,7 +9,14 @@
 <meta name="description" content="zach-db — tools by zach.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='11' fill='%23050505'/><circle cx='24' cy='24' r='20' fill='none' stroke='%23fff' stroke-width='1.6' stroke-dasharray='3 5' opacity='.7'/><circle cx='24' cy='24' r='15' fill='none' stroke='%23fff' stroke-width='1.8'/><path d='M17 18.5h14L17 29.5h14' fill='none' stroke='%23fff' stroke-width='3'/><circle cx='24' cy='24' r='2.2' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="/styles.css">
-<script>document.documentElement.classList.add('js');</script>
+<script>
+document.documentElement.classList.add('js');
+/* le cran de mouvement est posé avant la première image, pour éviter un clignotement */
+try {
+  var asked = new URLSearchParams(location.search).get('motion') || localStorage.getItem('zach-db-motion');
+  if (asked === 'live' || asked === 'still') document.documentElement.classList.add('motion-' + asked);
+} catch (ignored) {}
+</script>
 </head>
 <body>
 
@@ -70,6 +77,13 @@
         </a>
       </div>
     </details>
+
+    <!-- le système décide par défaut ; cette bascule force l'animation, ou la coupe -->
+    <button class="motion-switch" id="motionSwitch" type="button" data-state="system"
+            title="Motion: follow the system setting" aria-label="Motion: follow the system setting">
+      <span class="motion-key">Motion</span>
+      <b class="motion-val">system</b>
+    </button>
 
     <nav class="nav" aria-label="Sections">
       <a href="#signal">Signal</a>

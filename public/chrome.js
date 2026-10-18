@@ -14,6 +14,7 @@
  * trouve avant d'agir.
  */
 import { findToolByPath, normalizePath } from './lib/tools.js';
+import { motionReduced, initMotion, onMotionChange } from './lib/motion.js';
 
 const el = (id) => (typeof document.getElementById === 'function' ? document.getElementById(id) : null);
 
@@ -185,11 +186,14 @@ function initSpotlight() {
 const fmt = new Intl.NumberFormat('en-US');
 const n = (value) => fmt.format(value);
 
+let countersMode = null; // null : pas encore réglés · still : posés d'un coup · live : montés
+
 /** Compteurs qui montent jusqu'à leur valeur (accueil et page outil). */
 function initCounters() {
   const items = qsa('[data-count]');
   if (!items.length || typeof IntersectionObserver !== 'function') return;
-  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduced = motionReduced();
+  countersMode = reduced ? 'still' : 'live';
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
@@ -219,11 +223,17 @@ function countUp(node, instant) {
   requestAnimationFrame(step);
 }
 
+let typingWaiting = false; // gelés par le mouvement réduit, prêts à partir si on libère
+
 /** Les blocs marqués data-typing s'écrivent caractère par caractère. */
 function initTyping() {
   const blocks = qsa('[data-typing]');
   if (!blocks.length || typeof requestAnimationFrame !== 'function') return;
-  if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (motionReduced()) {
+    typingWaiting = true; // le texte reste entier et lisible : rien n'est perdu
+    return;
+  }
+  typingWaiting = false;
   blocks.forEach((pre, index) => {
     const full = String(pre.textContent || '');
     if (!full.trim()) return;
@@ -286,6 +296,7 @@ export async function copyText(text) {
 /** Habillage complet d'une page (appelé au chargement du module). */
 export function initChrome() {
   if (typeof document.querySelectorAll !== 'function') return; // DOM simulé : rien à décorer
+  initMotion(); // posé d'abord : les classes sur <html> décident du reste
   initToolSwitcher();
   initScrollLine();
   initReveal();
@@ -293,6 +304,14 @@ export function initChrome() {
   initCounters();
   initTyping();
   initCopy();
+
+  // la bascule d'en-tête peut libérer le mouvement sans recharger la page :
+  // ce qui avait été posé d'un coup (compteurs, blocs non écrits) repart alors
+  onMotionChange(() => {
+    if (motionReduced()) return;
+    if (countersMode === 'still') initCounters();
+    if (typingWaiting) initTyping();
+  });
 }
 
 initChrome();

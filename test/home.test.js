@@ -204,6 +204,44 @@ test('mouvement réduit : une image fixe, aucune boucle', async () => {
   }
 });
 
+test('la bascule « live » relance le fond, même sous mouvement réduit', async () => {
+  // le système demande toujours moins de mouvement, et aucun choix n'est stocké
+  globalThis.matchMedia = (query) => ({ media: query, matches: /reduced-motion/.test(query) });
+  delete globalThis.localStorage;
+
+  const queued = rafQueue.length;
+  for (const id of CANVASES) recorders.get(id).ops.length = 0;
+  await import('../public/home.js?toggle=1');
+  assert.equal(rafQueue.length, queued, 'sans choix explicite, le fond reste figé');
+  for (const id of CANVASES) {
+    assert.ok(opsOf(id).length > 60, id + ' : l’image fixe n’est pas composée');
+  }
+
+  // le visiteur tranche depuis l'en-tête : la boucle repart, sans recharger la page
+  const { setMotion } = await import('../public/lib/motion.js');
+  setMotion('live');
+  assert.ok(rafQueue.length > queued, 'la bascule ne relance aucune boucle');
+
+  const seen = new Set();
+  for (let i = 0; i < 6; i++) {
+    for (const id of CANVASES) recorders.get(id).ops.length = 0;
+    const callback = rafQueue.shift();
+    assert.equal(typeof callback, 'function', 'la boucle s’arrête à l’image ' + (i + 1));
+    clock += 16.7;
+    callback(clock);
+    seen.add(signature('voidCanvas'));
+    assert.ok(recorders.get('voidCanvas').ops.length > 60, 'image ' + (i + 1) + ' vide');
+  }
+  assert.ok(seen.size >= 2, 'le fond libéré ne bouge pas');
+
+  // le cran inverse regèle aussitôt : une dernière image est composée, rien ne disparaît
+  for (const id of CANVASES) recorders.get(id).ops.length = 0;
+  setMotion('still');
+  for (const id of CANVASES) {
+    assert.ok(opsOf(id).length > 60, id + ' : le gel ne recompose pas d’image');
+  }
+});
+
 test('le fond animé est bien le fond de la page', () => {
   // le canvas est dans la page, avant le contenu, et couvre tout l'écran
   const at = home.indexOf('id="voidCanvas"');

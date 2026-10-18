@@ -19,9 +19,10 @@
  * emoji, que du blanc sur noir.
  */
 import './chrome.js'; // sélecteur d'outil + décor commun
+import { motionReduced, onMotionChange } from './lib/motion.js';
 
-const reducedMotion =
-  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+// le système décide par défaut ; la bascule d'en-tête peut trancher (lib/motion.js)
+let reducedMotion = motionReduced();
 const hasRaf = typeof requestAnimationFrame === 'function';
 const DPR_CAP = 2;
 
@@ -588,8 +589,18 @@ function initTelemetry(dustCount) {
     }
   };
   render();
-  const timer = setInterval(render, reducedMotion ? 1000 : 240);
-  if (timer && typeof timer.unref === 'function') timer.unref(); // ne retient pas Node (tests)
+  const arm = () => {
+    const timer = setInterval(render, reducedMotion ? 1000 : 240);
+    if (timer && typeof timer.unref === 'function') timer.unref(); // ne retient pas Node (tests)
+    return timer;
+  };
+  let timer = arm();
+  onMotionChange(() => {
+    reducedMotion = motionReduced();
+    clearInterval(timer);
+    timer = arm();
+    render(); // le libellé « still frame » / « NN fps » suit immédiatement
+  });
 }
 
 /* ==================================================================
@@ -621,18 +632,31 @@ function boot() {
     }, { passive: true });
   }
 
+  // onglet caché : on ne dessine plus ; au retour, on reprend si le mouvement est libre
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stop();
+      else if (!reducedMotion) start();
+    });
+  }
+
+  // la bascule d'en-tête libère ou gèle le fond, sans recharger la page
+  onMotionChange(() => {
+    reducedMotion = motionReduced();
+    if (reducedMotion || !hasRaf) {
+      stop();
+      drawOnce(elapsed); // on garde la dernière image composée, jamais un écran noir
+      return;
+    }
+    start();
+  });
+
   if (reducedMotion || !hasRaf) {
     drawOnce(0.6); // une image fixe, composée, plutôt qu'un écran noir
     return;
   }
 
   start();
-  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) stop();
-      else start();
-    });
-  }
 }
 
 boot();

@@ -80,12 +80,28 @@ il n'y a ni paragraphe explicatif, ni légende, ni manifeste.
 `prefers-reduced-motion` fige tout sur une image fixe composée ; sans canvas ni
 JavaScript, la page reste noire et lisible.
 
+**La bascule de mouvement** (`Motion`, dans l'en-tête de chaque page) laisse le
+visiteur trancher lui-même, à trois crans : `system` — le réglage du système
+gagne, c'est le défaut et rien n'est alors stocké —, `live` — on anime quoi qu'il
+dise — et `still` — on gèle même s'il autorise le mouvement. Le choix est gardé
+dans `localStorage`, se règle d'un coup par `?motion=live` (le paramètre est
+ensuite retiré de l'adresse), prend effet **sans rechargement** — le fond de
+l'accueil repart aussitôt, les compteurs et les blocs qui s'écrivent aussi — et
+se lit dans le CSS par les classes `motion-live` / `motion-still` posées sur
+`<html>`. Deux lignes de script dans l'en-tête posent la classe avant la
+première image, pour éviter tout clignotement ; si le stockage est refusé, le
+cran vaut au moins pour l'onglet.
+
 `test/home.test.js` rejoue la boucle dans Node (horloge et `requestAnimationFrame`
 virtuels, contexte 2D qui enregistre les tracés au lieu de les dessiner) : il
 vérifie que les trois calques produisent une image **différente à chaque frame**,
 que les lignes de la grille défilent vraiment vers l'horizon, que la boucle se
-réarme, et qu'en mouvement réduit une image fixe est composée sans qu'aucune
-boucle ne démarre.
+réarme, qu'en mouvement réduit une image fixe est composée sans qu'aucune boucle
+ne démarre — et que la bascule `live` relance cette boucle sans rechargement,
+`still` la regélant sur une dernière image. `test/motion.test.js` couvre le
+module lui-même : qui décide, les trois crans, l'URL, le stockage refusé, la
+bascule identique sur les trois pages, et les deux blocs de gel du CSS
+strictement parallèles (impossible de faire diverger l'un sans l'autre).
 
 **Le menu déroulant** (un `<details>`, donc ouvert même sans JavaScript) est la
 seule citation des outils sur l'accueil. Il est présent sur toutes les pages :
@@ -236,7 +252,7 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
 ```bash
 npm start            # http://localhost:3000 → la vitrine
-npm test             # 94 tests (moteurs, workers, serveur, registre, interface, animation, Discord)
+npm test             # 108 tests (moteurs, workers, serveur, registre, interface, animation, mouvement, Discord)
 npm run check        # syntaxe de tous les modules
 npm run bench        # mesure sur un fichier généré
 ```
@@ -389,6 +405,7 @@ public/home.js                    moteur visuel de l'accueil (canvas, décodage,
 public/chrome.js                  habillage partagé : menu des outils + décor
 public/styles.css                 noir et blanc, sobre : cartes, halos, bandeau
 public/lib/tools.js               registre des outils (source de vérité)
+public/lib/motion.js              préférence de mouvement : système, live, still
 public/lib/parse.js               moteur d'extraction (navigateur / serveur / CLI)
 public/lib/group.js               moteur de tri par site (mêmes règles)
 public/lib/discord.js             flocon, drapeaux, adresses du CDN (isomorphe)
@@ -406,6 +423,7 @@ test/group.test.js                moteur de tri par site
 test/worker.test.js               worker du navigateur
 test/tools.test.js                registre ↔ accueil ↔ pages
 test/home.test.js                 le fond de l'accueil est réellement animé
+test/motion.test.js               la bascule de mouvement, du module au CSS
 test/discord.test.js              flocon, drapeaux, CDN, route (faux Discord)
 test/lookup.test.js               la page Discord lookup dans un DOM simulé
 test/site.test.js                 serveur HTTP + API
