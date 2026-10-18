@@ -20,8 +20,6 @@
  */
 import './chrome.js'; // sélecteur d'outil + décor commun
 
-const reducedMotion =
-  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const hasRaf = typeof requestAnimationFrame === 'function';
 const DPR_CAP = 2;
 
@@ -38,7 +36,7 @@ const layers = [];
 let running = false;
 let frame = 0;
 let previous = 0;
-let elapsed = 0; // secondes de mouvement (gelées si mouvement réduit)
+let elapsed = 0; // secondes d’animation écoulées
 let frames = 0;
 let fpsWindow = 0;
 let fpsValue = 0;
@@ -186,7 +184,7 @@ function createVoid(canvas) {
     const focal = h * 0.62;
     const camY = h * 0.3;
     const span = STEP * ROWS;
-    const shift = reducedMotion ? 0 : (t * SPEED) % span;
+    const shift = (t * SPEED) % span;
     ctx.lineWidth = 1;
     for (let k = 0; k < ROWS; k++) {
       const z = 60 + (((k * STEP - shift) % span) + span) % span;
@@ -228,7 +226,7 @@ function createVoid(canvas) {
     const link = 100;
     for (let i = 0; i < dust.length; i++) {
       const a = dust[i];
-      if (!reducedMotion && dt) {
+      if (dt) {
         a.x += a.vx * dt;
         a.y += a.vy * dt;
         if (a.y < -8) {
@@ -317,7 +315,7 @@ function createCore(canvas) {
     const cx = w / 2;
     const cy = h / 2;
     const radius = Math.min(w, h) * 0.335;
-    const spin = reducedMotion ? 0.5 : t * 0.19;
+    const spin = t * 0.19;
     const tiltX = -0.34 + (pointer.sy - 0.5) * 0.72;
     const tiltY = (pointer.sx - 0.5) * 0.4;
 
@@ -368,7 +366,7 @@ function createCore(canvas) {
     }
 
     // anneau de balayage : une latitude qui descend et remonte
-    const sweep = reducedMotion ? 0.5 : (Math.sin(t * 0.42) + 1) / 2;
+    const sweep = (Math.sin(t * 0.42) + 1) / 2;
     const phi = 0.16 * Math.PI + sweep * 0.68 * Math.PI;
     const ry = Math.cos(phi);
     const rr = Math.sin(phi);
@@ -492,7 +490,7 @@ function createSignal(canvas) {
 
     // trois gouttes d'encre tombent du haut jusqu'à la courbe
     for (let k = 0; k < 3; k++) {
-      const drift = reducedMotion ? 0 : t * (0.035 + k * 0.017);
+      const drift = t * (0.035 + k * 0.017);
       const i = Math.floor(((drift + k * 0.37) % 1) * (SAMPLES - 1));
       const x = (i / (SAMPLES - 1)) * w;
       const dx = x - px;
@@ -508,7 +506,7 @@ function createSignal(canvas) {
     }
 
     // balayage vertical
-    const sweepX = reducedMotion ? w * 0.5 : ((t * 0.085) % 1) * w;
+    const sweepX = ((t * 0.085) % 1) * w;
     const sweep = ctx.createLinearGradient(sweepX - 46, 0, sweepX + 46, 0);
     sweep.addColorStop(0, white(0));
     sweep.addColorStop(0.5, white(0.09));
@@ -535,7 +533,7 @@ function initDecode() {
   for (const node of qsa('[data-decode]')) {
     const target = node.getAttribute('data-decode') || String(node.textContent || '');
     if (!target) continue;
-    if (reducedMotion) {
+    if (!hasRaf) {
       node.textContent = target;
       continue;
     }
@@ -580,7 +578,7 @@ function initTelemetry(dustCount) {
   const render = () => {
     const date = new Date();
     if (clock) clock.textContent = pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
-    if (fps) fps.textContent = reducedMotion || !hasRaf ? 'still frame' : count(fpsValue) + ' fps';
+    if (fps) fps.textContent = !hasRaf ? 'still frame' : count(fpsValue) + ' fps';
     if (ptr) ptr.textContent = pointer.sx.toFixed(2) + ' / ' + pointer.sy.toFixed(2);
     if (uptime) {
       const seconds = Math.floor((Date.now() - startedAt) / 1000);
@@ -588,7 +586,7 @@ function initTelemetry(dustCount) {
     }
   };
   render();
-  const timer = setInterval(render, reducedMotion ? 1000 : 240);
+  const timer = setInterval(render, 240);
   if (timer && typeof timer.unref === 'function') timer.unref(); // ne retient pas Node (tests)
 }
 
@@ -621,7 +619,7 @@ function boot() {
     }, { passive: true });
   }
 
-  if (reducedMotion || !hasRaf) {
+  if (!hasRaf) {
     drawOnce(0.6); // une image fixe, composée, plutôt qu'un écran noir
     return;
   }
