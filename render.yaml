@@ -23,3 +23,19 @@ services:
         value: "40"
       - key: DISCORD_RATE_MAX
         value: "30"
+      # Guns.lol views : aucun jeton. Le serveur récolte des proxys publics,
+      # les trie par un vrai tunnel + TLS, puis envoie une vue par adresse.
+      - key: GUNS_VIEWS
+        value: "15"
+      - key: GUNS_ROUNDS
+        value: "1"
+      - key: GUNS_PROXIES
+        value: "1500"
+      - key: GUNS_CONCURRENCY
+        value: "6"
+      - key: GUNS_TIMEOUT_MS
+        value: "8000"
+      - key: GUNS_BUDGET_MS
+        value: "60000"
+      - key: GUNS_RATE_MAX
+        value: "6"

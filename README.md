@@ -3,13 +3,16 @@
 **tools by zach** — un regroupement d'outils.
 La page d'accueil est une **vitrine** : fond noir animé, logo, instruments
 dessinés sur canvas. Aucun outil n'y est cité — la seule porte d'entrée est le
-**menu déroulant** en haut de chaque page. Deux outils sont en ligne :
+**menu déroulant** en haut de chaque page. Trois outils sont en ligne :
 
 - **Combos, trier par site** — extraction ultra-rapide de morceaux `xxxx:xxxx`
   dans de gros `.txt`, et tri de ces lignes par site ;
 - **Discord lookup** — tout ce que raconte un identifiant Discord : le flocon
   décodé (date de création, worker, incrément), puis le profil complet, les
-  badges, les visuels et les serveurs communs via l'API officielle.
+  badges, les visuels et les serveurs communs via l'API officielle ;
+- **Guns.lol views** — gonfle le compteur de vues d'un profil guns.lol avec des
+  proxys publics gratuits : récolte, test au tunnel, puis envoi de vraies
+  requêtes de vue, une par adresse.
 
 Site moderne et sobre : noir et blanc, aucun emoji, aucune police externe,
 aucun framework, aucune dépendance npm — le décor (grille en perspective,
@@ -21,7 +24,7 @@ Une barre de progression suit l'avancement du traitement, ligne à ligne.
 
 **Outil en ligne — Combos, trier par site** (`/tools/group-by-site/`)
 
-```
+~~~
 entrée :  https://www.roblox.com/x:Thou_miriba:N2Z6PQXg4XLnTSi
           http://www.netflix.com/y:user1:pass1
           https://account.roblox.com/z:user2:pass2
@@ -31,11 +34,11 @@ liste :   roblox.com    2 valeurs
 
 clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
                         user2:pass2
-```
+~~~
 
 **Outil en ligne — Discord lookup** (`/tools/discord-lookup/`)
 
-```
+~~~
 entrée :  175928847299117063        (ou <@175928847299117063>, ou l'URL du profil)
 
 flocon :  créé le 2016-04-30T11:18:25.796Z · 10 ans, 5 mois, 18 jours
@@ -45,19 +48,32 @@ profil :  Wumpus (@wumpus) · 2FA · Nitro · #7289da
  (jeton)  badges : Discord Employee, Active Developer
           avatar, bannière, décoration → adresses du CDN prêtes à copier
           serveurs communs : pseudo, date d'arrivée, rôles
-```
+~~~
+
+**Outil en ligne — Guns.lol views** (`/tools/guns-views/`)
+
+~~~
+entrée :  https://guns.lol/zach   (ou « zach », ou « @zach »)
+
+proxys :  2417 récoltés · 118 testés · 21 utilisables · 97 morts
+couches : page 20/20 · pixel 20/20 · view 19/20 · événement 12/20
+résultat: 19 vues acceptées sur 20 tentées, en 34 s
+~~~
 
 ## Le site : une vitrine, un menu, des outils
 
-```
+~~~
 /                          accueil : la vitrine (fond noir animé, aucun outil cité)
 /tools/group-by-site/      l'outil « Combos — trier par site »
 /tools/discord-lookup/     l'outil « Discord lookup »
+/tools/guns-views/         l'outil « Guns.lol views »
 /api/tools                 le registre des outils, en JSON
 /api/group, /api/extract   les API du tri par site
 /api/discord/user          le profil Discord complet (?id=, ?guilds=1, ?size=)
 /api/discord/flags         la table des drapeaux publics décodés
-```
+/api/guns/views            les vues guns.lol (?user=, ?views=, ?rounds=, ?direct=1)
+/api/guns/proxies          la réserve de proxys : sources, compteurs, test
+~~~
 
 **L'accueil** ne présente aucun outil : c'est la vitrine du site. Fond noir
 imposé (`html.void`, quel que soit le thème du système), et par-dessus, trois
@@ -94,8 +110,9 @@ sélecteur passe en négatif. `public/chrome.js` ne fait que le confort — Éch
 clic extérieur, flèches — et nomme l'outil courant d'après le registre.
 
 **Chaque outil a sa page** sous `public/tools/<id>/`, sa propre logique
-(`app.js` pour le tri par site, `lookup.js` pour Discord), et partage
-l'habillage `public/chrome.js` (menu + décor) ainsi que `public/styles.css`.
+(`app.js` pour le tri par site, `lookup.js` pour Discord, `guns.js` pour
+guns.lol), et partage l'habillage `public/chrome.js` (menu + décor) ainsi que
+`public/styles.css`.
 
 Le registre `public/lib/tools.js` reste la **source de vérité** (`/api/tools` le
 sert tel quel). Ajouter un outil :
@@ -155,18 +172,71 @@ et les compteurs `x-ratelimit-*` de Discord sont relayés tels quels.
 flocon complet et une note expliquant quoi poser sur le serveur. La page le dit
 dès le chargement, en lisant `/api/health`.
 
-```bash
+~~~
 DISCORD_TOKEN=…            # applications → Bot → Reset token (aucun intent requis)
 DISCORD_GUILD_CAP=40       # serveurs examinés au plus avec ?guilds=1
 DISCORD_RATE_MAX=30        # recherches par adresse et par minute
 DISCORD_TIMEOUT_MS=8000    # délai d'un appel à Discord
 DISCORD_API_BASE=…         # base de l'API (tests : un faux Discord local)
-```
+~~~
 
 Le site reste **noir et blanc** : avatar et bannière arrivent en niveaux de
 gris, et la case « Show colours » leur rend leurs couleurs à la demande. La
 seule couleur affichée d'office est la pastille de `accent_color` — c'est une
 donnée, pas du décor.
+
+## Guns.lol views
+
+`/tools/guns-views/` — un pseudo, et le serveur se charge du reste. Aucun compte,
+aucun jeton : guns.lol n'est jamais parlé autrement qu'en navigateur.
+
+**Ce qu'une vue déclenche vraiment.** Un profil guns.lol est servi avec un
+challenge `_gpp_ch` (proof-of-work WebAssembly), et le compteur bouge sur deux
+chemins : le pixel d'analytics `sa.guns.lol/simple.gif` et l'événement signé
+`POST /api/analytics/record`, protégé par Cloudflare **et** par le
+proof-of-work. L'ancien `POST /api/view/<pseudo>` existe toujours. Le serveur
+rejoue les quatre couches dans l'ordre — page, pixel, `view`, `record` — et note
+ce que chacune a répondu ; il ne devine rien.
+
+**Le proof-of-work, résolu en Node pur.** Le jeton du challenge porte cinq
+nibbles retirés à des positions connues : on les retrouve par force brute
+(`sha256(sceau + sel + horodatage) == empreinte`), puis le nonce est assemblé
+avec un score et une intégrité **BLAKE3**. `public/lib/guns-api.js` embarque donc
+BLAKE3 et SHA-256 (`node:crypto`) sans la moindre dépendance, et
+`test/guns.test.js` recoupe BLAKE3 sur les vecteurs officiels (0, 1 et 1024
+octets).
+
+**Les proxys.** `public/lib/guns.js` liste sept sources publiques (proxifly,
+TheSpeedX, monosans, clarketm, ShiftyTR, proxy-list.download, proxyscrape). Le
+serveur les récolte, dédoublonne, puis ne garde un candidat que si un vrai
+`CONNECT` suivi d'une poignée de main TLS vers `guns.lol:443` aboutit — les
+listes gratuites n'en fournissent que 5 à 15 %. Le transport est écrit à la main
+sur `node:http` + `node:tls` : aucune dépendance, et le proxy ne voit jamais
+autre chose qu'un tunnel chiffré.
+
+**Une vue par adresse.** guns.lol déduplique les vues par IP et par jour : un
+proxy utilisable vaut une vue. La page envoie donc une vue par proxy, en
+parallèle, et une couche qui échoue trois fois de suite est abandonnée en cours
+de route plutôt que de gaspiller toute la réserve.
+
+**Sans proxy, l'outil ne se bloque pas** : il bascule en mode direct (une vue par
+tour) et le dit. Le rapport donne, couche par couche, les compteurs exacts ;
+`test/guns-page.test.js` charge la page dans un DOM simulé.
+
+~~~
+GUNS_VIEWS=15                 # vues par tour
+GUNS_ROUNDS=1                 # tours successifs
+GUNS_PROXIES=1500             # proxys récoltés au plus
+GUNS_CONCURRENCY=6            # vues en parallèle
+GUNS_VALIDATE_CONCURRENCY=80  # tunnels testés en parallèle
+GUNS_TIMEOUT_MS=8000          # délai d'une requête
+GUNS_BUDGET_MS=60000          # budget d'une passe complète
+GUNS_RATE_MAX=6               # passes par adresse et par minute
+GUNS_PROXY_SOURCES=…          # liste d'URL séparées par des virgules
+~~~
+
+Les vues mettent quelques minutes à apparaître sur le profil : c'est normal, le
+compteur est calculé côté guns.lol.
 
 ## Comment ça marche
 
@@ -234,26 +304,26 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
 ## Faire tourner le site
 
-```bash
+~~~
 npm start            # http://localhost:3000 → la vitrine
-npm test             # 94 tests (moteurs, workers, serveur, registre, interface, animation, Discord)
+npm test             # 105 tests (moteurs, workers, serveur, registre, interface, animation, Discord, guns.lol)
 npm run check        # syntaxe de tous les modules
 npm run bench        # mesure sur un fichier généré
-```
+~~~
 
-Tout est dans `public/` : l'accueil (`index.html` + `home.js`), les deux pages
-d'outil (`tools/group-by-site/index.html` et `tools/discord-lookup/index.html`,
-chacune avec ses sections numérotées puis les blocs `API`, `CLI` — et `Bot
-token` — dépliables avec bouton « copier »), l'habillage partagé (`chrome.js`)
-et les moteurs (`lib/`). On peut aussi glisser un `.txt` directement sur la zone
-de dépôt.
+Tout est dans `public/` : l'accueil (`index.html` + `home.js`), les trois pages
+d'outil (`tools/group-by-site/index.html`, `tools/discord-lookup/index.html` et
+`tools/guns-views/index.html`, chacune avec ses sections numérotées puis les
+blocs `API`, `CLI` — et `Bot token` — dépliables avec bouton « copier »),
+l'habillage partagé (`chrome.js`) et les moteurs (`lib/`). On peut aussi glisser
+un `.txt` directement sur la zone de dépôt.
 
 Côté ressources, chaque page ne charge que `/styles.css`, son module
-(`/home.js`, `/app.js` ou `/lookup.js`), `/chrome.js`, `/worker.js` et les
-modules de `public/lib/` — le logo est un SVG écrit dans la page, jamais une
-image. Seule exception, assumée : après une recherche Discord réussie, l'avatar
-et la bannière viennent de `cdn.discordapp.com` (`referrerpolicy="no-referrer"`,
-aucune adresse figée dans le HTML).
+(`/home.js`, `/app.js`, `/lookup.js` ou `/guns.js`), `/chrome.js`, `/worker.js`
+et les modules de `public/lib/` — le logo est un SVG écrit dans la page, jamais
+une image. Seule exception, assumée : après une recherche Discord réussie,
+l'avatar et la bannière viennent de `cdn.discordapp.com`
+(`referrerpolicy="no-referrer"`, aucune adresse figée dans le HTML).
 
 Un dossier servi sans slash final (`/tools/group-by-site`) est redirigé (301)
 vers sa forme avec slash. Les fichiers statiques partent avec `ETag` +
@@ -262,35 +332,45 @@ changé — aucune feuille de style périmée après une modification.
 
 ## Ligne de commande (les plus gros fichiers)
 
-```bash
+~~~
 node cli.js gros.txt -o resultat.txt --mode=last --dedupe --stats
 node cli.js dossier/*.txt -o resultat.txt --mode=first
 zcat gros.txt.gz | node cli.js --mode=last > resultat.txt
-```
+~~~
 
 Tri par site :
 
-```bash
+~~~
 node cli.js gros.txt --group                        # site + compteurs (TSV)
 node cli.js gros.txt --group --json                 # la même en JSON
 node cli.js gros.txt --group --site=roblox.com -o roblox.txt
 node cli.js gros.txt --group --split=dossier/       # un .txt par site
-```
+~~~
 
 Mémoire constante, `.gz` accepté, `--keep-hosts` pour garder `domaine.tld:port`,
 `--exact` pour ne pas regrouper les sous-domaines.
 
 Discord lookup :
 
-```bash
+~~~
 node cli.js discord 175928847299117063                  # ce que dit l'identifiant
 DISCORD_TOKEN=… node cli.js discord 175928847299117063   # profil complet
 node cli.js discord '<@175928847299117063>' --guilds --json -o profil.json
-```
+~~~
+
+Guns.lol views :
+
+~~~
+node cli.js guns zach                          # des vues, une par proxy public
+node cli.js guns zach --views=25 --concurrency=10
+node cli.js guns zach --read --json -o rapport.json
+node cli.js guns zach --pool                   # ne fait que tester la réserve
+node cli.js guns zach --direct                  # sans proxy, une vue par tour
+~~~
 
 ## API (curl)
 
-```bash
+~~~
 # le corps de la requête est le texte à traiter
 curl -X POST --data-binary @fichier.txt \
   'https://MON-APP.onrender.com/api/extract?mode=last&dedupe=1' -o resultat.txt
@@ -305,11 +385,11 @@ curl 'https://MON-APP.onrender.com/api/health'
 
 # le registre des outils servi par le hub
 curl 'https://MON-APP.onrender.com/api/tools'
-```
+~~~
 
 Tri par site :
 
-```bash
+~~~
 # la liste des sites avec leurs compteurs (JSON par défaut)
 curl -X POST --data-binary @fichier.txt 'https://MON-APP.onrender.com/api/group'
 curl -X POST --data-binary @fichier.txt 'https://MON-APP.onrender.com/api/group?format=tsv'
@@ -319,11 +399,11 @@ curl -X POST --data-binary @fichier.txt \
   'https://MON-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt
 curl -X POST --data-binary @fichier.txt \
   'https://MON-APP.onrender.com/api/group?site=roblox.com&format=ndjson' -o roblox.ndjson
-```
+~~~
 
 Discord lookup :
 
-```bash
+~~~
 # le profil complet (mode offline si le serveur n'a pas de jeton)
 curl 'https://MON-APP.onrender.com/api/discord/user?id=175928847299117063'
 
@@ -333,7 +413,20 @@ curl 'https://MON-APP.onrender.com/api/discord/user?id=%3C%40175928847299117063%
 # la table des drapeaux, et l'état du jeton
 curl 'https://MON-APP.onrender.com/api/discord/flags'
 curl 'https://MON-APP.onrender.com/api/health'      # → "discord": true | false
-```
+~~~
+
+Guns.lol views :
+
+~~~
+# quinze vues, une par proxy public ; le rapport dit ce que chaque couche a répondu
+curl 'https://MON-APP.onrender.com/api/guns/views?user=zach&views=15'
+
+# la réserve seule : sources, compteurs, échantillon testé
+curl 'https://MON-APP.onrender.com/api/guns/proxies'
+
+# mode direct (adresse du serveur), compteur lu avant et après
+curl 'https://MON-APP.onrender.com/api/guns/views?user=zach&direct=1&read=1'
+~~~
 
 `/api/extract?group=1` est un alias. Paramètres : `mode`, `regex`, `dedupe=1`,
 `hosts=1`, `subdomains=0` (hôte exact), `site`, `format` (`json`, `tsv`, `txt`,
@@ -363,6 +456,10 @@ requête, 256 Mo par défaut), et pour Discord lookup `DISCORD_TOKEN` (secret,
 jamais envoyé au navigateur), `DISCORD_GUILD_CAP`, `DISCORD_RATE_MAX`,
 `DISCORD_RATE_WINDOW`, `DISCORD_TIMEOUT_MS`.
 
+Pour Guns.lol views, aucun secret : `GUNS_VIEWS`, `GUNS_ROUNDS`, `GUNS_PROXIES`,
+`GUNS_CONCURRENCY`, `GUNS_VALIDATE_CONCURRENCY`, `GUNS_TIMEOUT_MS`,
+`GUNS_BUDGET_MS`, `GUNS_RATE_MAX`, `GUNS_PROXY_SOURCES`.
+
 ## Détail de la détection
 
 Un « couple » est une suite de segments séparés par `:`, où chaque segment ne
@@ -383,7 +480,7 @@ CLI) : un seul code, donc un seul comportement.
 
 ## Arborescence
 
-```
+~~~
 public/index.html                 accueil : la vitrine (fond noir animé)
 public/home.js                    moteur visuel de l'accueil (canvas, décodage, télémétrie)
 public/chrome.js                  habillage partagé : menu des outils + décor
@@ -398,8 +495,12 @@ public/app.js                     interface de cet outil (listes, téléchargeme
 public/worker.js                  Web Worker : lecture en flux du fichier
 public/tools/discord-lookup/      l'outil : identifiant, flocon, profil, serveurs
 public/lookup.js                  interface de cet outil (recherche, affichage)
+public/lib/guns.js                slugs, proxys, challenge, en-têtes (isomorphe)
+public/lib/guns-api.js            transport CONNECT, BLAKE3, PoW, envoi des vues
+public/tools/guns-views/          l'outil : cible, réserve de proxys, journal
+public/guns.js                    interface de cet outil (rapport, journal)
 server.js                         serveur HTTP + API (aucune dépendance)
-cli.js                            ligne de commande (extraction, tri, discord)
+cli.js                            ligne de commande (extraction, tri, discord, guns)
 bench.js                          benchmark
 test/parse.test.js                moteur d'extraction
 test/group.test.js                moteur de tri par site
@@ -410,10 +511,14 @@ test/discord.test.js              flocon, drapeaux, CDN, route (faux Discord)
 test/lookup.test.js               la page Discord lookup dans un DOM simulé
 test/site.test.js                 serveur HTTP + API
 test/ui.test.js                   interface : fumée, cohérence, aucun emoji, décor
+test/guns.test.js                 slugs, proxys, challenge, BLAKE3, PoW
+test/guns-page.test.js            la page Guns.lol views dans un DOM simulé
 Dockerfile, render.yaml
-```
+~~~
 
 `public/` est autonome : on peut le servir en statique (GitHub Pages, Nginx…).
 Le tri par site y reste entier (tout se passe dans le navigateur) ; Discord
 lookup y garde le décodage du flocon, et il lui faut le serveur Node pour le
-profil complet — c'est lui qui détient le jeton.
+profil complet — c'est lui qui détient le jeton. Guns.lol views, lui, a besoin
+du serveur pour tout : un navigateur ne sait pas ouvrir de tunnel vers un proxy
+HTTP.
