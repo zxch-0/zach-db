@@ -277,17 +277,11 @@ export function pathOf(url) {
  * facultatifs : sans eux, une source est une liste texte de proxys HTTP.
  */
 export const PROXY_SOURCES = [
-  { name: 'monosans', url: 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/https.txt' },
-  { name: 'proxifly', url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt' },
-  { name: 'mmpx12', url: 'https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt' },
-  { name: 'roosterkid', url: 'https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt' },
-  { name: 'zloi-user', url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/https.txt' },
-  { name: 'hookzof', url: 'https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt', scheme: 'socks5' },
-  { name: 'geonode', url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks5', type: 'json' },
-  // Les mêmes listes, mais servies par leur site plutôt qu'en texte brut.
+  // Texte brut ou JSON.
   { name: 'proxyscrape-http', url: 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all' },
   { name: 'proxyscrape-socks5', url: 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all', scheme: 'socks5' },
   { name: 'proxy-list-dl', url: 'https://www.proxy-list.download/api/v1/get?type=https' },
+  { name: 'geonode', url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks5', type: 'json' },
   // Les sites qui ne publient qu'une page HTML : lus par parseProxyHtml —
   // paires de cases <td>ip</td><td>port</td>, sinon tout « ip:port » en clair.
   { name: 'free-proxy-list.net', url: 'https://free-proxy-list.net/', type: 'html' },
