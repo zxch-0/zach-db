@@ -41,6 +41,31 @@ export const TOOLS = [
       'Nothing is uploaded: the file never leaves the browser',
     ],
   },
+  {
+    id: 'discord-lookup',
+    name: 'Discord lookup',
+    short: 'Discord lookup',
+    tagline: 'Paste a user ID and read everything Discord exposes: profile, badges, assets, creation date, mutual servers.',
+    description:
+      'A user ID, a mention or a profile URL is enough. The snowflake is decoded on the spot — creation date, ' +
+      'internal worker, increment — then the server asks Discord with its own bot token and returns the whole ' +
+      'user object: names, public flags, banner, accent colour, CDN assets, and on demand the servers the bot ' +
+      'shares with that account, with nicknames, join dates and role names.',
+    path: '/tools/discord-lookup/',
+    status: 'available',
+    tags: ['snowflake decode', 'public flags', 'cdn assets', 'mutual servers'],
+    input: 'a Discord user ID, a mention, or a profile URL',
+    output: 'the profile card, the decoded snowflake, and the raw JSON',
+    speed: '~1 API call · 300 ms',
+    api: '/api/discord/user',
+    cli: 'node cli.js discord 175928847299117063',
+    points: [
+      'Creation date, worker and increment read from the ID alone — no token, no network',
+      'With a bot token on the server: names, badges, avatar, banner, accent colour, Nitro, locale',
+      'Mutual servers with nicknames, join dates and role names, one request per server',
+      'The token never reaches the browser: the server proxies every call to Discord',
+    ],
+  },
 ];
 
 /** Outils utilisables dès maintenant. */

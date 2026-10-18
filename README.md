@@ -1,11 +1,15 @@
 # zach-db
 
-**tools by zach** — un regroupement d'outils pour les gros fichiers `.txt`.
+**tools by zach** — un regroupement d'outils.
 La page d'accueil est une **vitrine** : fond noir animé, logo, instruments
 dessinés sur canvas. Aucun outil n'y est cité — la seule porte d'entrée est le
-**menu déroulant** en haut de chaque page. Un seul outil est en ligne pour
-l'instant : **Combos, trier par site** (extraction ultra-rapide de morceaux
-`xxxx:xxxx` et tri de ces lignes par site).
+**menu déroulant** en haut de chaque page. Deux outils sont en ligne :
+
+- **Combos, trier par site** — extraction ultra-rapide de morceaux `xxxx:xxxx`
+  dans de gros `.txt`, et tri de ces lignes par site ;
+- **Discord lookup** — tout ce que raconte un identifiant Discord : le flocon
+  décodé (date de création, worker, incrément), puis le profil complet, les
+  badges, les visuels et les serveurs communs via l'API officielle.
 
 Site moderne et sobre : noir et blanc, aucun emoji, aucune police externe,
 aucun framework, aucune dépendance npm — le décor (grille en perspective,
@@ -29,13 +33,30 @@ clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
                         user2:pass2
 ```
 
+**Outil en ligne — Discord lookup** (`/tools/discord-lookup/`)
+
+```
+entrée :  175928847299117063        (ou <@175928847299117063>, ou l'URL du profil)
+
+flocon :  créé le 2016-04-30T11:18:25.796Z · 10 ans, 5 mois, 18 jours
+          42 bits d'horodatage · worker 1 · process 0 · incrément 7
+
+profil :  Wumpus (@wumpus) · 2FA · Nitro · #7289da
+ (jeton)  badges : Discord Employee, Active Developer
+          avatar, bannière, décoration → adresses du CDN prêtes à copier
+          serveurs communs : pseudo, date d'arrivée, rôles
+```
+
 ## Le site : une vitrine, un menu, des outils
 
 ```
 /                          accueil : la vitrine (fond noir animé, aucun outil cité)
 /tools/group-by-site/      l'outil « Combos — trier par site »
+/tools/discord-lookup/     l'outil « Discord lookup »
 /api/tools                 le registre des outils, en JSON
-/api/group, /api/extract   les API de cet outil
+/api/group, /api/extract   les API du tri par site
+/api/discord/user          le profil Discord complet (?id=, ?guilds=1, ?size=)
+/api/discord/flags         la table des drapeaux publics décodés
 ```
 
 **L'accueil** ne présente aucun outil : c'est la vitrine du site. Fond noir
@@ -73,8 +94,8 @@ sélecteur passe en négatif. `public/chrome.js` ne fait que le confort — Éch
 clic extérieur, flèches — et nomme l'outil courant d'après le registre.
 
 **Chaque outil a sa page** sous `public/tools/<id>/`, sa propre logique
-(`app.js` pour le premier), et partage l'habillage `public/chrome.js`
-(menu + décor) ainsi que `public/styles.css`.
+(`app.js` pour le tri par site, `lookup.js` pour Discord), et partage
+l'habillage `public/chrome.js` (menu + décor) ainsi que `public/styles.css`.
 
 Le registre `public/lib/tools.js` reste la **source de vérité** (`/api/tools` le
 sert tel quel). Ajouter un outil :
@@ -91,6 +112,61 @@ champs complets, identifiants uniques, page présente sur le disque, menu
 identique au registre sur chaque page — et surtout **aucune citation d'outil sur
 l'accueil en dehors du menu**. Un outil `status: 'soon'` y apparaît grisé, sans
 lien.
+
+## Discord lookup
+
+`/tools/discord-lookup/` — deux temps, et le premier ne demande rien à personne.
+
+**1. Le flocon de neige, décodé dans le navigateur.** Un identifiant Discord est
+un entier 64 bits : 42 bits de millisecondes depuis l'epoch Discord
+(`1420070400000`, 1er janvier 2015), 5 bits de worker interne, 5 bits de
+processus, 12 bits d'incrément. `public/lib/discord.js` les sépare pendant la
+frappe : date de création (UTC), âge du compte, worker, incrément, hexadécimal,
+mention `<@…>`, lien de profil, avatar par défaut. La saisie est libre — nombre
+nu, mention `<@!…>`, adresse `discord.com/users/…` copiée depuis l'application :
+le premier flocon trouvé gagne. Cette partie fonctionne **sans réseau et sans
+jeton**, et `test/discord.test.js` vérifie que les morceaux se recollent à
+l'identique.
+
+**2. Le profil complet, relayé par le serveur.** `GET /api/discord/user?id=…`
+appelle l'API officielle (v10) avec le jeton bot du serveur et rend tout :
+
+- l'objet brut de Discord, tel quel (`user`), plus une vue normalisée
+  (`profile`) : nom affiché, pseudo, ancienne balise `nom#0000`, discriminateur,
+  bot/système, 2FA, vérifié, langue, Nitro, couleur d'accent (en `#rrggbb`),
+  hashes d'avatar et de bannière, décoration, `primary_guild` ;
+- les **drapeaux publics** décodés bit à bit (15 drapeaux documentés — un bit
+  inconnu est signalé comme tel, jamais inventé) ;
+- les **adresses du CDN** prêtes à l'emploi : avatar `.png`/`.webp`/`.gif` (un
+  hash `a_…` est animé), bannière, décoration, avatar par défaut (indexé par
+  l'identifiant, ou par le discriminateur pour les anciens comptes), à la taille
+  demandée (`?size=16…4096`) ;
+- avec `?guilds=1`, les **serveurs communs** : le bot interroge chaque serveur
+  où il se trouve (`GET /guilds/<id>/members/<user>`) et rend pseudo, date
+  d'arrivée, boost, suspension, et les noms de rôles triés par position.
+
+**Le jeton reste sur le serveur.** Le navigateur ne reçoit que le résultat —
+`test/discord.test.js` le vérifie assertion par assertion : la chaîne du jeton
+n'apparaît jamais dans une réponse. Un garde-fou de débit (`DISCORD_RATE_MAX` recherches par
+adresse et par minute, 30 par défaut) évite qu'un visiteur n'use le quota du bot,
+et les compteurs `x-ratelimit-*` de Discord sont relayés tels quels.
+
+**Sans jeton, l'outil ne se bloque pas** : il répond `mode: "offline"` avec le
+flocon complet et une note expliquant quoi poser sur le serveur. La page le dit
+dès le chargement, en lisant `/api/health`.
+
+```bash
+DISCORD_TOKEN=…            # applications → Bot → Reset token (aucun intent requis)
+DISCORD_GUILD_CAP=40       # serveurs examinés au plus avec ?guilds=1
+DISCORD_RATE_MAX=30        # recherches par adresse et par minute
+DISCORD_TIMEOUT_MS=8000    # délai d'un appel à Discord
+DISCORD_API_BASE=…         # base de l'API (tests : un faux Discord local)
+```
+
+Le site reste **noir et blanc** : avatar et bannière arrivent en niveaux de
+gris, et la case « Show colours » leur rend leurs couleurs à la demande. La
+seule couleur affichée d'office est la pastille de `accent_color` — c'est une
+donnée, pas du décor.
 
 ## Comment ça marche
 
@@ -160,19 +236,24 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 
 ```bash
 npm start            # http://localhost:3000 → la vitrine
-npm test             # 70 tests (moteurs, workers, serveur, registre, interface, animation)
+npm test             # 94 tests (moteurs, workers, serveur, registre, interface, animation, Discord)
 npm run check        # syntaxe de tous les modules
 npm run bench        # mesure sur un fichier généré
 ```
 
-Tout est dans `public/` : l'accueil (`index.html` + `home.js`), la page de
-l'outil (`tools/group-by-site/index.html`, sections 01 à 03 puis les blocs `API`
-et `CLI` dépliables avec bouton « copier »), l'habillage partagé (`chrome.js`)
+Tout est dans `public/` : l'accueil (`index.html` + `home.js`), les deux pages
+d'outil (`tools/group-by-site/index.html` et `tools/discord-lookup/index.html`,
+chacune avec ses sections numérotées puis les blocs `API`, `CLI` — et `Bot
+token` — dépliables avec bouton « copier »), l'habillage partagé (`chrome.js`)
 et les moteurs (`lib/`). On peut aussi glisser un `.txt` directement sur la zone
-de dépôt. Aucune requête ne part : les seules ressources chargées sont
-`/styles.css`, `/home.js` ou `/app.js`, `/chrome.js`, `/worker.js` et les
+de dépôt.
+
+Côté ressources, chaque page ne charge que `/styles.css`, son module
+(`/home.js`, `/app.js` ou `/lookup.js`), `/chrome.js`, `/worker.js` et les
 modules de `public/lib/` — le logo est un SVG écrit dans la page, jamais une
-image.
+image. Seule exception, assumée : après une recherche Discord réussie, l'avatar
+et la bannière viennent de `cdn.discordapp.com` (`referrerpolicy="no-referrer"`,
+aucune adresse figée dans le HTML).
 
 Un dossier servi sans slash final (`/tools/group-by-site`) est redirigé (301)
 vers sa forme avec slash. Les fichiers statiques partent avec `ETag` +
@@ -198,6 +279,14 @@ node cli.js gros.txt --group --split=dossier/       # un .txt par site
 
 Mémoire constante, `.gz` accepté, `--keep-hosts` pour garder `domaine.tld:port`,
 `--exact` pour ne pas regrouper les sous-domaines.
+
+Discord lookup :
+
+```bash
+node cli.js discord 175928847299117063                  # ce que dit l'identifiant
+DISCORD_TOKEN=… node cli.js discord 175928847299117063   # profil complet
+node cli.js discord '<@175928847299117063>' --guilds --json -o profil.json
+```
 
 ## API (curl)
 
@@ -232,6 +321,20 @@ curl -X POST --data-binary @fichier.txt \
   'https://MON-APP.onrender.com/api/group?site=roblox.com&format=ndjson' -o roblox.ndjson
 ```
 
+Discord lookup :
+
+```bash
+# le profil complet (mode offline si le serveur n'a pas de jeton)
+curl 'https://MON-APP.onrender.com/api/discord/user?id=175928847299117063'
+
+# serveurs communs, visuels en 2048 px, mention acceptée en entrée
+curl 'https://MON-APP.onrender.com/api/discord/user?id=%3C%40175928847299117063%3E&guilds=1&size=2048'
+
+# la table des drapeaux, et l'état du jeton
+curl 'https://MON-APP.onrender.com/api/discord/flags'
+curl 'https://MON-APP.onrender.com/api/health'      # → "discord": true | false
+```
+
 `/api/extract?group=1` est un alias. Paramètres : `mode`, `regex`, `dedupe=1`,
 `hosts=1`, `subdomains=0` (hôte exact), `site`, `format` (`json`, `tsv`, `txt`,
 `ndjson`), `dir`, `paths=1`, `gz=0`.
@@ -256,7 +359,9 @@ déjà prêt.
 
 Variables utiles : `PORT` (fourni par Render), `ZACH_DB_DIR` (dossier autorisé
 pour `?dir=`, vide par défaut), `ZACH_DB_BODY_LIMIT` (taille max d'un corps de
-requête, 256 Mo par défaut).
+requête, 256 Mo par défaut), et pour Discord lookup `DISCORD_TOKEN` (secret,
+jamais envoyé au navigateur), `DISCORD_GUILD_CAP`, `DISCORD_RATE_MAX`,
+`DISCORD_RATE_WINDOW`, `DISCORD_TIMEOUT_MS`.
 
 ## Détail de la détection
 
@@ -286,21 +391,29 @@ public/styles.css                 noir et blanc, sobre : cartes, halos, bandeau
 public/lib/tools.js               registre des outils (source de vérité)
 public/lib/parse.js               moteur d'extraction (navigateur / serveur / CLI)
 public/lib/group.js               moteur de tri par site (mêmes règles)
+public/lib/discord.js             flocon, drapeaux, adresses du CDN (isomorphe)
+public/lib/discord-api.js         client Discord : serveur et CLI, un seul code
 public/tools/group-by-site/       l'outil : page, barre de progression, résultats
 public/app.js                     interface de cet outil (listes, téléchargements)
 public/worker.js                  Web Worker : lecture en flux du fichier
+public/tools/discord-lookup/      l'outil : identifiant, flocon, profil, serveurs
+public/lookup.js                  interface de cet outil (recherche, affichage)
 server.js                         serveur HTTP + API (aucune dépendance)
-cli.js                            ligne de commande
+cli.js                            ligne de commande (extraction, tri, discord)
 bench.js                          benchmark
 test/parse.test.js                moteur d'extraction
 test/group.test.js                moteur de tri par site
 test/worker.test.js               worker du navigateur
 test/tools.test.js                registre ↔ accueil ↔ pages
 test/home.test.js                 le fond de l'accueil est réellement animé
+test/discord.test.js              flocon, drapeaux, CDN, route (faux Discord)
+test/lookup.test.js               la page Discord lookup dans un DOM simulé
 test/site.test.js                 serveur HTTP + API
 test/ui.test.js                   interface : fumée, cohérence, aucun emoji, décor
 Dockerfile, render.yaml
 ```
 
-`public/` est autonome : on peut aussi le servir en statique (GitHub Pages,
-Nginx…) et n'y utiliser que le traitement local.
+`public/` est autonome : on peut le servir en statique (GitHub Pages, Nginx…).
+Le tri par site y reste entier (tout se passe dans le navigateur) ; Discord
+lookup y garde le décodage du flocon, et il lui faut le serveur Node pour le
+profil complet — c'est lui qui détient le jeton.

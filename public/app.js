@@ -250,7 +250,7 @@ function setGroupBusy(value) {
   gfilesInput.disabled = value;
   if (value) gsaveButton.disabled = true;
   // le décor (halos, bandeau, scintillement) se met en pause pendant le traitement
-  if (document.body && document.body.classList) document.body.classList.toggle('busy', value);
+  if (document.body && document.body.classList) document.body.classList.toggle('is-busy', value);
 }
 
 function replaceSites(list) {

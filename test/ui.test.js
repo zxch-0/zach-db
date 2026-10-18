@@ -17,9 +17,14 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PAGES = {
   home: 'public/index.html',
   tool: 'public/tools/group-by-site/index.html',
+  lookup: 'public/tools/discord-lookup/index.html',
 };
-const html = fs.readFileSync(path.join(ROOT, PAGES.tool), 'utf8');
-const home = fs.readFileSync(path.join(ROOT, PAGES.home), 'utf8');
+const TEXTS = Object.fromEntries(
+  Object.entries(PAGES).map(([name, file]) => [name, fs.readFileSync(path.join(ROOT, file), 'utf8')])
+);
+const html = TEXTS.tool;
+const home = TEXTS.home;
+const lookup = TEXTS.lookup;
 const app = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
 const chrome = fs.readFileSync(path.join(ROOT, 'public/chrome.js'), 'utf8');
 
@@ -229,7 +234,7 @@ test('app.js et la page de l’outil sont cohérents', () => {
 
 test('le sélecteur d’outil est présent sur toutes les pages', () => {
   for (const [name, page] of Object.entries(PAGES)) {
-    const text = name === 'home' ? home : html;
+    const text = TEXTS[name];
     for (const id of ['toolSwitcher', 'toolSwitcherBtn', 'toolSwitcherName', 'toolMenu']) {
       assert.ok(text.includes('id="' + id + '"'), 'élément #' + id + ' absent de la page ' + name);
     }
@@ -242,23 +247,35 @@ test('le sélecteur d’outil est présent sur toutes les pages', () => {
     assert.match(menu, /<span class="tool-item-text">/, 'entrée de menu renseignée sur ' + name);
   }
 
-  // la page outil dit d'où elle vient, et la marque ramène à l'accueil
-  assert.match(html, /<nav class="crumb" aria-label="Breadcrumb">/);
-  assert.match(html, /<a class="brand" href="\/"/);
+  // chaque page d'outil dit d'où elle vient, et la marque ramène à l'accueil
+  for (const [name, text] of [['outil', html], ['lookup', lookup]]) {
+    assert.ok(text.includes('<nav class="crumb" aria-label="Breadcrumb">'), 'fil d’Ariane absent de ' + name);
+    assert.ok(text.includes('<a class="brand" href="/"'), 'marque sans retour à l’accueil sur ' + name);
+    assert.ok(!text.includes('/#tools'), name + ' pointe vers une ancre qui n’existe plus');
+  }
   assert.match(home, /<a class="brand" href="\/" aria-current="page">/);
 
   // le logo est un SVG dessiné sur place, jamais une image
-  for (const [name, text] of [['accueil', home], ['outil', html]]) {
+  for (const [name, text] of [['accueil', home], ['outil', html], ['lookup', lookup]]) {
     assert.match(text, /<svg class="logo" viewBox="0 0 48 48"/, 'logo absent de ' + name);
     assert.match(text, /class="logo-z"/, 'le Z du logo absent de ' + name);
-    assert.ok(!/<img\b/i.test(text), name + ' ne doit contenir aucune balise <img>');
     assert.match(text, /<span class="brand-sub">tools by zach<\/span>/, 'signature « tools by zach » sur ' + name);
   }
 
   // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
-  for (const [name, text] of [['accueil', home], ['outil', html]]) {
+  for (const [name, text] of [['accueil', home], ['outil', html], ['lookup', lookup]]) {
     for (const match of text.matchAll(/<(?:script|link|img|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^"]+)"/gi)) {
       assert.fail('ressource externe chargée par ' + name + ' : ' + match[1]);
+    }
+    // l'accueil et le tri par site ne chargent aucune image ; discord lookup
+    // montre un avatar, mais son adresse n'arrive qu'avec le résultat
+    const images = [...text.matchAll(/<img\b[^>]*>/gi)];
+    if (name === 'lookup') {
+      assert.equal(images.length, 1, 'une seule image sur discord lookup : l’avatar');
+      assert.ok(!/\bsrc=/.test(images[0][0]), 'l’avatar n’a pas d’adresse figée dans la page');
+      assert.match(images[0][0], /referrerpolicy="no-referrer"/);
+    } else {
+      assert.equal(images.length, 0, name + ' ne doit contenir aucune balise <img>');
     }
   }
   for (const source of [app, chrome]) {
@@ -269,7 +286,7 @@ test('le sélecteur d’outil est présent sur toutes les pages', () => {
 });
 
 test('le bouton Discord ouvre le serveur communautaire en nouvel onglet', () => {
-  for (const [name, text] of [['accueil', home], ['outil', html]]) {
+  for (const [name, text] of [['accueil', home], ['outil', html], ['lookup', lookup]]) {
     const link = text.match(/<a\b(?=[^>]*\bclass="discord-link")([^>]*)>/);
     assert.ok(link, 'bouton Discord absent de ' + name);
     assert.match(link[1], /\bhref="https:\/\/discord\.gg\/uKZAZS8kY9"/);
@@ -284,16 +301,18 @@ test('aucun emoji dans le site', () => {
   // projet (→, ·, —, « ») ne sont pas concernés : ils s’affichent en noir.
   const emoji = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{25A0}-\u{25FF}\u{FE0F}\u{1F1E6}-\u{1F1FF}\u{20E3}]/u;
   const files = [
-    PAGES.home,
-    PAGES.tool,
+    ...Object.values(PAGES),
     'public/styles.css',
     'public/app.js',
     'public/home.js',
+    'public/lookup.js',
     'public/chrome.js',
     'public/worker.js',
     'public/lib/parse.js',
     'public/lib/group.js',
     'public/lib/tools.js',
+    'public/lib/discord.js',
+    'public/lib/discord-api.js',
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -307,11 +326,15 @@ test('la décoration reste sobre, accessible et sans ressource distante', () => 
 
   // le décor est bien dans les deux pages (halos, grain, bandeau, fil de lecture)
   for (const marker of ['ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
-    assert.ok(home.includes(marker), 'décor absent de l’accueil : ' + marker);
-    assert.ok(html.includes(marker), 'décor absent de la page outil : ' + marker);
+    for (const [name, text] of Object.entries(TEXTS)) {
+      assert.ok(text.includes(marker), 'décor absent de la page ' + name + ' : ' + marker);
+    }
   }
   assert.ok(home.includes('void-canvas'), 'fond animé absent de l’accueil');
-  assert.ok(html.includes('ambient-grid'), 'grille absente de la page outil');
+  for (const [name, text] of [['outil', html], ['lookup', lookup]]) {
+    assert.ok(text.includes('ambient-grid'), 'grille absente de la page ' + name);
+    assert.match(text, /<meta name="color-scheme" content="light dark">/, name + ' suit le thème du système');
+  }
 
   // l'accueil impose le noir, les autres pages suivent le système
   assert.match(home, /<html lang="en" class="void">/, 'accueil en fond noir imposé');
@@ -350,6 +373,14 @@ test('la décoration reste sobre, accessible et sans ressource distante', () => 
   for (const marker of ['.tool-card', '.tools-grid', '.tool-meta', '.badge-on']) {
     assert.ok(!css.includes(marker), 'style d’outil encore présent : ' + marker);
   }
+
+  // discord lookup a son habillage, et le site reste en noir et blanc par défaut
+  for (const marker of ['.bits-cell', '.facts', '.profile-banner', '.profile-img', '.badges',
+    '.assets', '.guilds', '.swatch', '.panel-note', '.id-field']) {
+    assert.ok(css.includes(marker), 'style manquant pour discord lookup : ' + marker);
+  }
+  assert.match(css, /filter: grayscale\(1\)/, 'les visuels arrivent en niveaux de gris');
+  assert.match(css, /body\.show-colors \.profile-img/, 'les couleurs se demandent explicitement');
 });
 
 test.after(() => {

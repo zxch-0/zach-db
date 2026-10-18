@@ -72,6 +72,9 @@ test('l\'accueil est une vitrine, la page outil porte le traitement', async () =
     ['/worker.js', /javascript/],
     ['/lib/parse.js', /javascript/],
     ['/lib/tools.js', /javascript/],
+    ['/lookup.js', /javascript/],
+    ['/lib/discord.js', /javascript/],
+    ['/lib/discord-api.js', /javascript/],
   ]) {
     const response = await fetch(base + file);
     assert.equal(response.status, 200, file);

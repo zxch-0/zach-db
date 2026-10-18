@@ -14,3 +14,12 @@ services:
       # Montez un disque Render et pointez cette variable dessus, sinon laissez vide.
       - key: ZACH_DB_DIR
         sync: false
+      # Jeton bot Discord, pour l'outil « Discord lookup » (facultatif).
+      # discord.com/developers/applications → Bot → Reset token.
+      # Il reste sur le serveur : le navigateur ne reçoit jamais que le résultat.
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_CAP
+        value: "40"
+      - key: DISCORD_RATE_MAX
+        value: "30"

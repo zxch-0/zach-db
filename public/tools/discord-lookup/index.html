@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Discord lookup · zach-db</title>
+<meta name="description" content="zach-db tool: look up a Discord account by user ID. The snowflake is decoded on the spot, and the server asks Discord with its own bot token for the full profile, badges, assets and mutual servers.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='11' fill='%23050505'/><circle cx='24' cy='24' r='20' fill='none' stroke='%23fff' stroke-width='1.6' stroke-dasharray='3 5' opacity='.7'/><circle cx='24' cy='24' r='15' fill='none' stroke='%23fff' stroke-width='1.8'/><path d='M17 18.5h14L17 29.5h14' fill='none' stroke='%23fff' stroke-width='3'/><circle cx='24' cy='24' r='2.2' fill='%23fff'/></svg>">
+<link rel="stylesheet" href="/styles.css">
+<script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+
+<a class="skip" href="#lookup">Skip to the lookup</a>
+
+<!-- ==================== décor ambiant (non lu) ==================== -->
+<div class="ambient" aria-hidden="true">
+  <span class="ambient-grid"></span>
+  <span class="ambient-glow"></span>
+  <span class="ambient-glow ambient-glow--2"></span>
+  <span class="ambient-noise"></span>
+</div>
+<span class="scroll-line" aria-hidden="true"><i class="scroll-line-fill"></i></span>
+
+<!-- ==================== en-tête ==================== -->
+<header class="site-head">
+  <div class="wrap head-inner">
+    <a class="brand" href="/" title="All tools — zach-db home">
+      <span class="mark" aria-hidden="true">
+        <svg class="logo" viewBox="0 0 48 48" focusable="false">
+          <circle class="logo-ring" cx="24" cy="24" r="21.4"/>
+          <circle class="logo-orbit" cx="24" cy="24" r="16"/>
+          <path class="logo-z" d="M16.5 17.6h15L16.5 30.4h15"/>
+          <circle class="logo-node" cx="24" cy="24" r="2.2"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <strong>zach-db</strong>
+        <span class="brand-sub">tools by zach</span>
+      </span>
+    </a>
+
+    <!-- seule porte vers les outils : un <details>, donc ouvert même sans JavaScript -->
+    <details class="toolswitch has-current" id="toolSwitcher">
+      <summary class="toolswitch-btn" id="toolSwitcherBtn" title="Choose a tool">
+        <span class="toolswitch-text">
+          <span class="toolswitch-kicker">Tool</span>
+          <span class="toolswitch-name" id="toolSwitcherName">Discord lookup</span>
+        </span>
+        <svg class="toolswitch-caret" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </summary>
+      <div class="toolswitch-menu" id="toolMenu" role="menu" aria-label="Choose a tool">
+        <p class="toolswitch-title"><span>Tools</span><b>2 online</b></p>
+        <a class="tool-item" role="menuitem" href="/">
+          <span class="tool-item-text"><strong>All tools</strong><em>the whole collection</em></span>
+          <span class="tool-item-mark" aria-hidden="true">go</span>
+        </a>
+        <a class="tool-item" role="menuitem" href="/tools/group-by-site/">
+          <span class="tool-item-text"><strong>Combos — group by site</strong><em>Sort huge .txt dumps by site, then pull out the values of any site you click.</em></span>
+          <span class="tool-item-mark" aria-hidden="true">go</span>
+        </a>
+        <a class="tool-item" role="menuitem" href="/tools/discord-lookup/" aria-current="page">
+          <span class="tool-item-text"><strong>Discord lookup</strong><em>Paste a user ID and read everything Discord exposes: profile, badges, assets, creation date, mutual servers.</em></span>
+          <span class="tool-item-mark" aria-hidden="true">open</span>
+        </a>
+      </div>
+    </details>
+
+    <nav class="nav" aria-label="Sections">
+      <a href="#lookup">Lookup</a>
+      <a href="#snowflake">Snowflake</a>
+      <a href="#profile">Profile</a>
+      <a href="#api">API</a>
+      <a href="#token">Token</a>
+    </nav>
+
+    <p class="local-note"><span class="pulse" aria-hidden="true"></span>Server-side calls — the bot token never reaches your browser</p>
+
+    <a class="discord-link" href="https://discord.gg/uKZAZS8kY9" target="_blank" rel="noopener noreferrer" aria-label="Join the Discord server (opens in a new tab)">
+      <svg class="discord-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M20.317 4.3698a19.7913 19.7913 0 0 0-4.8851-1.5152.0741.0741 0 0 0-.0785.0371c-.211.3753-.4447.8648-.6083 1.2534-1.8453-.2762-3.68-.2762-5.4868 0-.1636-.3979-.4058-.8782-.617-1.2534a.077.077 0 0 0-.0784-.0371A19.7363 19.7363 0 0 0 3.6771 2.854a.07.07 0 0 0-.0321.0277C.5334 9.0458-.319 13.5793.0992 18.0576a.0824.0824 0 0 0 .0312.0561c2.0718 1.5183 4.078 2.4404 6.0478 3.048.038.0113.0796-.0026.1032-.0321.465-.6352.8793-1.3072 1.2356-2.0168a.0764.0764 0 0 0-.0416-.1065c-.6588-.2496-1.2863-.5556-1.8854-.9038a.077.077 0 0 1-.0078-.1277c.1262-.0943.2524-.1925.3728-.2914a.0743.0743 0 0 1 .0776-.0104c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 0 1 .0785.0095c.1204.0989.2466.1972.3738.2914a.077.077 0 0 1-.0069.1277c-.599.3545-1.2265.6605-1.8864.9038a.0766.0766 0 0 0-.0407.1074c.3639.7086.7783 1.3807 1.2346 2.0159.0235.0304.0652.0443.1041.0321 1.9783-.6086 3.9845-1.5307 6.0563-3.048a.077.077 0 0 0 .0312-.0552c.5-5.1778-.8382-9.6734-3.5495-13.6638a.061.061 0 0 0-.0312-.0295ZM8.02 15.3315c-1.1835 0-2.1569-1.0857-2.1569-2.4194 0-1.3338.9549-2.4195 2.1569-2.4195 1.2117 0 2.1752 1.095 2.1569 2.4195 0 1.3337-.9549 2.4194-2.1569 2.4194Zm7.9745 0c-1.1835 0-2.1569-1.0857-2.1569-2.4194 0-1.3338.9549-2.4195 2.1569-2.4195 1.2118 0 2.1752 1.095 2.1569 2.4195 0 1.3337-.9458 2.4194-2.1569 2.4194Z"/>
+      </svg>
+      <span class="discord-label"><span class="discord-prefix">Join </span>Discord</span>
+      <svg class="discord-arrow" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M5 11 11 5M5.5 5H11v5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ==================== accroche ==================== -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+
+      <div class="hero-copy">
+        <nav class="crumb" aria-label="Breadcrumb">
+          <a href="/">zach-db</a><span aria-hidden="true">/</span>
+          <a href="/">tools</a><span aria-hidden="true">/</span>
+          <span aria-current="page">discord lookup</span>
+        </nav>
+
+        <p class="eyebrow"><span>snowflake</span><span>discord api v10</span><span>zero dependencies</span></p>
+
+        <h1>Every account,<br><span class="shimmer">read from its ID.</span></h1>
+
+        <p class="lead">
+          A Discord user ID is a snowflake: 42 bits of timestamp, 5 of worker, 5 of process, 12 of
+          increment. Decode it and you already know when the account was created — no network, no
+          token. Add a bot token on the server and the rest follows: names, badges, avatar, banner,
+          accent colour, assets, and the servers you have in common.
+        </p>
+
+        <p class="cta">
+          <a class="btn btn-solid" href="#lookup"><span>Look up an ID</span></a>
+          <a class="btn" href="#token"><span>Enable the full profile</span></a>
+        </p>
+
+        <dl class="specs">
+          <div><dt>discord epoch</dt><dd><b data-count="1420070400000">1420070400000</b></dd></div>
+          <div><dt>flags decoded</dt><dd><b data-count="15">15</b></dd></div>
+          <div><dt>endpoints used</dt><dd><b data-count="4">4</b></dd></div>
+          <div><dt>dependencies</dt><dd><b data-count="0">0</b></dd></div>
+        </dl>
+      </div>
+
+      <aside class="demo" aria-hidden="true">
+        <div class="demo-bar">
+          <span class="leds"><i></i><i></i><i></i></span>
+          <span class="demo-title">lookup</span>
+          <span class="chip-tag">api v10</span>
+        </div>
+
+        <div class="demo-col">
+          <p class="demo-label">id</p>
+          <pre class="demo-pre" id="demoId" data-typing>175928847299117063</pre>
+        </div>
+
+        <div class="demo-col demo-out">
+          <p class="demo-label">snowflake</p>
+          <ul class="demo-list">
+            <li style="--d:0.05s"><span>created</span><b>2016-04-30</b></li>
+            <li style="--d:0.18s"><span>worker</span><b>1</b></li>
+            <li style="--d:0.31s"><span>increment</span><b>7</b></li>
+          </ul>
+          <p class="demo-foot">with a token → <code>username, badges, avatar, banner, mutual servers</code></p>
+        </div>
+      </aside>
+
+    </div>
+  </section>
+
+  <!-- ==================== bandeau défilant ==================== -->
+  <div class="marquee" aria-hidden="true">
+    <div class="marquee-track">
+      <span class="marquee-group">
+        <i>discord lookup</i><i>snowflake</i><i>1420070400000</i><i>public flags</i><i>cdn assets</i>
+        <i>mutual servers</i><i>api v10</i><i>user id</i><i>bot token</i><i>zero dependencies</i>
+      </span>
+      <span class="marquee-group">
+        <i>discord lookup</i><i>snowflake</i><i>1420070400000</i><i>public flags</i><i>cdn assets</i>
+        <i>mutual servers</i><i>api v10</i><i>user id</i><i>bot token</i><i>zero dependencies</i>
+      </span>
+    </div>
+  </div>
+
+  <!-- ==================== recherche ==================== -->
+  <section class="stage" id="lookup">
+
+    <form id="lookupForm">
+
+      <!-- ---------- 01 — identifiant ---------- -->
+      <article class="panel card reveal">
+        <h2 class="panel-title"><span class="num">01</span><span class="panel-name">Identifier</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">id, mention or profile URL</span></h2>
+
+        <div class="id-field">
+          <span class="id-mark" aria-hidden="true">/</span>
+          <input type="text" id="did" autocomplete="off" spellcheck="false" inputmode="numeric"
+            aria-describedby="dhint"
+            placeholder="175928847299117063  ·  &lt;@175928847299117063&gt;  ·  https://discord.com/users/175928847299117063">
+        </div>
+        <p class="field-hint" id="dhint">17 to 20 digits. The first snowflake in the field wins; the rest is ignored.</p>
+
+        <div class="lookup-options">
+          <label class="check">
+            <input type="checkbox" id="dmutual">
+            <span class="check-text">Also search mutual servers
+              <em>one request per server the bot is in — slower, and capped</em>
+            </span>
+          </label>
+
+          <label class="check">
+            <input type="checkbox" id="dcolors">
+            <span class="check-text">Show colours
+              <em>avatar and banner stay grayscale until you ask</em>
+            </span>
+          </label>
+
+          <div class="size-field">
+            <label for="dsize">Asset size</label>
+            <select id="dsize">
+              <option value="128">128 px</option>
+              <option value="256">256 px</option>
+              <option value="512">512 px</option>
+              <option value="1024" selected>1024 px</option>
+              <option value="2048">2048 px</option>
+              <option value="4096">4096 px</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="buttons">
+          <button type="submit" id="dgo"><span>Look up</span></button>
+          <button type="button" id="dcancel" disabled><span>Cancel</span></button>
+        </div>
+
+        <div class="progress indeterminate" id="dprogress" role="progressbar" aria-label="Lookup progress" hidden>
+          <div class="progress-track"><div class="progress-fill" id="dbar"></div></div>
+          <span class="progress-pct" id="dpct">idle</span>
+        </div>
+
+        <p id="dstatus" class="status" role="status">Ready. Decoding an ID needs neither network nor token.</p>
+
+        <p class="note panel-note" id="dnotice" hidden></p>
+        <p class="note panel-note" id="dratelimit" hidden></p>
+      </article>
+
+    </form>
+  </section>
+
+  <!-- ==================== flocon de neige ==================== -->
+  <section class="stage" id="snowflake">
+    <article class="panel card reveal">
+      <h2 class="panel-title"><span class="num">02</span><span class="panel-name">Snowflake</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">decoded while you type — no network</span></h2>
+
+      <div class="bits" id="dbits" aria-hidden="true"></div>
+
+      <dl class="facts">
+        <div><dt>id</dt><dd id="dsnowId">—</dd></div>
+        <div><dt>created (utc)</dt><dd id="dcreated">—</dd></div>
+        <div><dt>age</dt><dd id="dage">—</dd></div>
+        <div><dt>timestamp</dt><dd id="dts">—</dd></div>
+        <div><dt>unix</dt><dd id="dunix">—</dd></div>
+        <div><dt>worker</dt><dd id="dworker">—</dd></div>
+        <div><dt>process</dt><dd id="dprocess">—</dd></div>
+        <div><dt>increment</dt><dd id="dincrement">—</dd></div>
+        <div><dt>hex</dt><dd id="dhex">—</dd></div>
+        <div><dt>mention</dt><dd id="dmention">—</dd></div>
+        <div><dt>profile</dt><dd id="dprofileLink">—</dd></div>
+        <div><dt>default avatar</dt><dd id="ddefaultAvatar">—</dd></div>
+      </dl>
+    </article>
+  </section>
+
+  <!-- ==================== profil ==================== -->
+  <section class="stage" id="profile">
+    <article class="panel card profile reveal" id="dprofileBox" hidden>
+      <h2 class="panel-title"><span class="num">03</span><span class="panel-name">Profile</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint" id="dmode">—</span></h2>
+
+      <div class="profile-banner" id="dbanner" aria-hidden="true"></div>
+
+      <div class="profile-top">
+        <span class="profile-avatar">
+          <img id="davatar" class="profile-img" alt="Avatar of the looked-up account"
+               referrerpolicy="no-referrer" decoding="async" hidden>
+        </span>
+        <div class="profile-names">
+          <h3 id="ddisplay">—</h3>
+          <p id="dusername">—</p>
+        </div>
+        <div class="pills" id="dpills"></div>
+      </div>
+
+      <div class="badges" id="dbadges"></div>
+
+      <div class="stats">
+        <div class="stat"><strong id="statFields">0</strong><span>fields</span></div>
+        <div class="stat"><strong id="statBadges">0</strong><span>badges</span></div>
+        <div class="stat"><strong id="statServers">0</strong><span>mutual servers</span></div>
+        <div class="stat"><strong id="statMs">0</strong><span>round trip ms</span></div>
+      </div>
+
+      <dl class="facts" id="dfacts"></dl>
+    </article>
+  </section>
+
+  <!-- ==================== visuels ==================== -->
+  <section class="stage" id="assets">
+    <article class="panel card reveal" id="dassetsBox" hidden>
+      <h2 class="panel-title"><span class="num">04</span><span class="panel-name">Assets</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">cdn.discordapp.com</span></h2>
+      <ul class="assets" id="dassets"></ul>
+    </article>
+  </section>
+
+  <!-- ==================== serveurs communs ==================== -->
+  <section class="stage" id="servers">
+    <article class="panel card reveal" id="dguildBox" hidden>
+      <h2 class="panel-title"><span class="num">05</span><span class="panel-name">Mutual servers</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint" id="dguildSummary">—</span></h2>
+      <ul class="guilds" id="dguilds"></ul>
+      <p class="note" id="dguildNote" hidden></p>
+    </article>
+  </section>
+
+  <!-- ==================== réponse brute ==================== -->
+  <section class="stage">
+    <article id="drawBox" class="result card" hidden>
+      <div class="result-head">
+        <h2>Raw answer</h2>
+        <div class="buttons">
+          <button type="button" id="dsave" disabled><span>Download .json</span></button>
+          <button type="button" id="drawCopy"><span>Copy</span></button>
+        </div>
+      </div>
+      <pre id="draw"></pre>
+      <p id="dwarn" class="note" hidden></p>
+    </article>
+  </section>
+
+  <!-- ==================== api, cli, jeton ==================== -->
+  <section class="stage docs">
+
+    <details class="doc card reveal" id="api">
+      <summary><span class="doc-name">Server API</span><span class="doc-sub">curl — one call, everything back</span><span class="doc-mark" aria-hidden="true"></span></summary>
+      <div class="code-card">
+        <div class="code-head"><span>Full profile</span><button type="button" class="copy" data-copy>Copy</button></div>
+<pre>curl 'https://YOUR-APP.onrender.com/api/discord/user?id=175928847299117063'</pre>
+      </div>
+      <div class="code-card">
+        <div class="code-head"><span>Mutual servers, bigger assets</span><button type="button" class="copy" data-copy>Copy</button></div>
+<pre>curl 'https://YOUR-APP.onrender.com/api/discord/user?id=175928847299117063&amp;guilds=1&amp;size=2048'</pre>
+      </div>
+      <div class="code-card">
+        <div class="code-head"><span>What the server decodes, and whether a token is set</span><button type="button" class="copy" data-copy>Copy</button></div>
+<pre>curl 'https://YOUR-APP.onrender.com/api/discord/flags'   # the flag table
+curl 'https://YOUR-APP.onrender.com/api/health'          # discord: true | false</pre>
+      </div>
+    </details>
+
+    <details class="doc card reveal" id="cli">
+      <summary><span class="doc-name">CLI</span><span class="doc-sub">the same lookup from a terminal</span><span class="doc-mark" aria-hidden="true"></span></summary>
+      <div class="code-card">
+        <div class="code-head"><span>Look up an ID</span><button type="button" class="copy" data-copy>Copy</button></div>
+<pre>node cli.js discord 175928847299117063                 # what the ID says alone
+DISCORD_TOKEN=... node cli.js discord 175928847299117063   # full profile
+node cli.js discord '&lt;@175928847299117063&gt;' --guilds --json -o profile.json</pre>
+      </div>
+    </details>
+
+    <details class="doc card reveal" id="token">
+      <summary><span class="doc-name">Bot token</span><span class="doc-sub">the only thing between you and the full profile</span><span class="doc-mark" aria-hidden="true"></span></summary>
+      <div class="code-card">
+        <div class="code-head"><span>Create a bot, then give the token to the server</span><button type="button" class="copy" data-copy>Copy</button></div>
+<pre># 1. https://discord.com/developers/applications → New application
+# 2. Bot → Reset token → copy it (no privilege, no intent needed)
+# 3. give it to the server, never to the browser:
+DISCORD_TOKEN=your-bot-token
+DISCORD_GUILD_CAP=40        # servers checked when ?guilds=1
+DISCORD_RATE_MAX=30         # lookups per address per minute
+DISCORD_TIMEOUT_MS=8000</pre>
+      </div>
+      <div class="code-card">
+        <div class="code-head"><span>Without a token</span><button type="button" class="copy" data-copy>Copy</button></div>
+<pre># the tool still answers: everything a snowflake carries
+curl 'https://YOUR-APP.onrender.com/api/discord/user?id=175928847299117063'
+# → { "mode": "offline", "snowflake": { "created", "worker", "increment" … } }</pre>
+      </div>
+    </details>
+
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap foot-inner">
+    <p class="foot-brand" aria-hidden="true">zach-db</p>
+    <p class="foot-line"><span>snowflake epoch 1420070400000</span><span id="dmeta">discord api v10</span></p>
+    <p class="foot-line"><span>The bot token stays on the server</span><span>MIT</span></p>
+  </div>
+</footer>
+
+<script src="/lookup.js" type="module"></script>
+</body>
+</html>

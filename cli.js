@@ -12,8 +12,14 @@
  *   node cli.js gros.txt --group --site=roblox.com -o roblox.txt
  *   node cli.js gros.txt --group --split=dossier/      # un .txt par site
  *
+ * Discord lookup :
+ *   node cli.js discord 175928847299117063             # ce que dit l'identifiant
+ *   DISCORD_TOKEN=... node cli.js discord <id>          # profil complet
+ *   node cli.js discord <id> --guilds --json -o w.json  # serveurs communs, en JSON
+ *
  * Options : -o/--out, --mode, --regex, --dedupe, --stats, --group, --site,
- *           --split, --json, --exact, --keep-hosts, --help
+ *           --split, --json, --exact, --keep-hosts, --help,
+ *           discord, --token, --guilds, --size
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -22,6 +28,7 @@ import { once } from 'node:events';
 import zlib from 'node:zlib';
 import { createProcessor, MODES } from './public/lib/parse.js';
 import { createGrouper, NO_SITE } from './public/lib/group.js';
+import { lookup as discordLookup } from './public/lib/discord-api.js';
 
 function usage() {
   process.stdout.write(`zach-db — extrait les morceaux "xxxx:xxxx" de gros fichiers texte
@@ -45,6 +52,14 @@ tri par site :
       --exact           garde l'hôte exact (www. inclus, sous-domaines
                         non regroupés)
 
+discord lookup :
+  discord <id>          tout ce que raconte un identifiant Discord
+      --token <jeton>   jeton bot (défaut : DISCORD_TOKEN) ; sans jeton, la
+                        sortie reste utile : date de création, worker, liens
+      --guilds          cherche aussi les serveurs communs avec le bot
+      --size <côté>     taille des visuels demandés au CDN (16 à 4096, 1024)
+      --json            la réponse complète en JSON
+
 entrées : fichiers .txt / .log / .csv / .gz, ou stdin (rien à lire = stdin)
 `);
 }
@@ -53,6 +68,7 @@ function parseArgs(argv) {
   const options = {
     mode: 'last', regex: '', dedupe: false, hosts: false, out: null, stats: false,
     group: false, json: false, exact: false, site: null, split: null, inputs: [],
+    command: null, token: null, guilds: false, size: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -73,9 +89,15 @@ function parseArgs(argv) {
     else if (arg === '--split') options.split = argv[++i];
     else if (arg.startsWith('--split=')) options.split = arg.slice(8);
     else if (arg === '--stats') options.stats = true;
+    else if (arg === '--token') options.token = argv[++i];
+    else if (arg.startsWith('--token=')) options.token = arg.slice(8);
+    else if (arg === '--guilds') options.guilds = true;
+    else if (arg === '--size') options.size = argv[++i];
+    else if (arg.startsWith('--size=')) options.size = Number(arg.slice(7));
     else if (arg.startsWith('-') && arg !== '-') throw new Error('option inconnue : ' + arg);
     else options.inputs.push(arg);
   }
+  if (options.inputs[0] === 'discord') options.command = 'discord';
   if (!MODES.includes(options.mode)) throw new Error('mode inconnu : ' + options.mode + ' (' + MODES.join(', ') + ')');
   return options;
 }
@@ -220,9 +242,105 @@ async function* readFile(file) {
   for await (const chunk of stream) yield chunk;
 }
 
+/* ==================================================================
+   discord lookup — ce que raconte un identifiant
+   ================================================================== */
+
+const line = (label, value) => (value === null || value === undefined || value === '' ? '' :
+  label.padEnd(15) + ': ' + value + '\n');
+
+/** Âge en français : la CLI parle français, la page parle anglais. */
+function ageFr(age) {
+  const parts = [];
+  if (age.years) parts.push(age.years + (age.years > 1 ? ' ans' : ' an'));
+  if (age.months) parts.push(age.months + (age.months > 1 ? ' mois' : ' mois'));
+  if (age.calendarDays || !parts.length) parts.push(age.calendarDays + (age.calendarDays > 1 ? ' jours' : ' jour'));
+  return parts.join(', ');
+}
+
+function discordText(payload) {
+  let out = '';
+  const snow = payload.snowflake || {};
+
+  out += 'identifiant    : ' + (payload.id || '-') + '\n';
+  if (snow.valid) {
+    out += line('créé le', snow.date.iso);
+    out += line('âge', ageFr(snow.age));
+    out += line('worker', snow.worker + '   process : ' + snow.process + '   incrément : ' + snow.increment);
+    out += line('binaire', snow.binary);
+  } else {
+    out += 'flocon         : invalide (' + (snow.reason || '?') + ')\n';
+  }
+
+  const profile = payload.profile;
+  if (profile) {
+    out += '\n';
+    out += line('nom affiché', profile.display);
+    out += line('pseudo', profile.username);
+    if (profile.legacyTag) out += line('ancienne balise', profile.legacyTag);
+    out += line('discriminateur', profile.discriminator);
+    out += line('type', [profile.bot ? 'bot' : null, profile.system ? 'system' : null]
+      .filter(Boolean).join(', ') || 'compte humain');
+    if (profile.mfa !== null) out += line('2FA', profile.mfa ? 'oui' : 'non');
+    if (profile.locale) out += line('langue', profile.locale);
+    if (profile.premium) out += line('nitro', profile.premium.name);
+    if (profile.accentColor) out += line('couleur', profile.accentColor);
+    out += line('drapeaux', profile.flags.list.length
+      ? profile.flags.list.map((flag) => flag.name + ' (bit ' + flag.bit + ')').join(', ')
+      : 'aucun');
+    out += line('public_flags', profile.flags.raw);
+    out += line('avatar', profile.assets.avatar || profile.assets.avatarDefault);
+    if (profile.assets.banner) out += line('bannière', profile.assets.banner);
+    if (profile.assets.decoration) out += line('décoration', profile.assets.decoration);
+    out += line('mention', profile.mention);
+    out += line('profil', profile.url);
+  }
+
+  const guilds = payload.guilds;
+  if (guilds && guilds.enabled) {
+    out += '\nserveurs communs : ' + guilds.mutual.length +
+      ' trouvé(s), ' + guilds.checked + '/' + guilds.total + ' vérifié(s)\n';
+    for (const member of guilds.mutual) {
+      out += '  - ' + (member.guild ? member.guild.name : '?') +
+        (member.nick ? ' (pseudo : ' + member.nick + ')' : '') +
+        (member.joinedAt ? ' — rejoint le ' + member.joinedAt.slice(0, 10) : '') +
+        (member.roles.length ? ' — rôles : ' + member.roles.map((role) => role.name).join(', ') : '') + '\n';
+    }
+    if (guilds.stopped) out += '  (arrêt : ' + guilds.stopped + ')\n';
+  }
+
+  if (payload.mode === 'offline') {
+    out += '\nSans jeton, la sortie s\'arrête à ce que l\'identifiant raconte.\n' +
+      'Un jeton bot donne le profil complet :\n' +
+      '  DISCORD_TOKEN=... node cli.js discord ' + (payload.id || '<id>') + '\n';
+  }
+  if (payload.error) out += '\nerreur : ' + payload.error + '\n';
+  return out;
+}
+
+async function discordMain(options) {
+  const payload = await discordLookup(options.inputs[1] || '', {
+    guilds: options.guilds,
+    size: options.size,
+    token: options.token,
+  });
+  const body = options.json
+    ? JSON.stringify(payload, null, 2) + '\n'
+    : discordText(payload);
+
+  if (options.out) {
+    await fsp.writeFile(options.out, body);
+    process.stderr.write('écrit : ' + path.resolve(options.out) + '\n');
+  } else {
+    await new Promise((resolve) => process.stdout.write(body, resolve));
+  }
+  if (!payload.ok) process.exitCode = 1;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) return usage();
+  if (options.command === 'discord') return discordMain(options);
 
   const sources = options.inputs.length ? options.inputs : ['-'];
   for (const file of sources) {
