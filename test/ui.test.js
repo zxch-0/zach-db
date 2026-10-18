@@ -18,6 +18,7 @@ const PAGES = {
   home: 'public/index.html',
   tool: 'public/tools/group-by-site/index.html',
   lookup: 'public/tools/discord-lookup/index.html',
+  guns: 'public/tools/guns-views/index.html',
 };
 const TEXTS = Object.fromEntries(
   Object.entries(PAGES).map(([name, file]) => [name, fs.readFileSync(path.join(ROOT, file), 'utf8')])
@@ -315,6 +316,9 @@ test('aucun emoji dans le site', () => {
     'public/lib/tools.js',
     'public/lib/discord.js',
     'public/lib/discord-api.js',
+    'public/guns.js',
+    'public/lib/guns.js',
+    'public/lib/guns-api.js',
   ];
   for (const file of files) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');

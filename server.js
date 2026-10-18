@@ -14,6 +14,9 @@
  *                                       les serveurs communs) ; sans jeton, rend
  *                                       tout ce que l'identifiant raconte
  *   GET  /api/discord/flags           → la table des drapeaux publics décodés
+ *   GET  /api/guns/views              → pousse des vues sur un profil guns.lol
+ *                                       (?user=, ?views=, ?rounds=, ?direct=1)
+ *   GET  /api/guns/proxies            → la réserve de proxys : sources, test
  *
  * Les ressources statiques sont servies avec ETag + no-cache : le navigateur
  * redemande, le serveur répond 304 si rien n'a changé (aucune feuille de style
@@ -36,6 +39,7 @@ import { createProcessor, MODES } from './public/lib/parse.js';
 import { createGrouper } from './public/lib/group.js';
 import { TOOLS, availableTools } from './public/lib/tools.js';
 import { lookup as discordLookup, flagTable } from './public/lib/discord-api.js';
+import { boost as gunsBoost, inspectPool as gunsPool } from './public/lib/guns-api.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -501,13 +505,13 @@ function clientIp(req) {
  * Garde-fou : cette route relaie un jeton bot, elle ne doit pas pouvoir être
  * matraquée. Renvoie le nombre de secondes à attendre, 0 si tout va bien.
  */
-function throttle(ip, max = RATE_MAX, windowMs = RATE_WINDOW) {
+function throttle(ip, max = RATE_MAX, windowMs = RATE_WINDOW, store = hits) {
   const now = Date.now();
-  const recent = (hits.get(ip) || []).filter((stamp) => now - stamp < windowMs);
+  const recent = (store.get(ip) || []).filter((stamp) => now - stamp < windowMs);
   recent.push(now);
-  hits.set(ip, recent);
-  if (hits.size > 2000) {
-    for (const [key, value] of hits) if (!value.some((stamp) => now - stamp < windowMs)) hits.delete(key);
+  store.set(ip, recent);
+  if (store.size > 2000) {
+    for (const [key, value] of store) if (!value.some((stamp) => now - stamp < windowMs)) store.delete(key);
   }
   if (recent.length > max) return Math.max(1, Math.ceil((windowMs - (now - recent[0])) / 1000));
   return 0;
@@ -535,6 +539,64 @@ async function handleDiscord(req, res, url) {
   return sendJson(res, status, body);
 }
 
+/* ---------- guns.lol views ---------- */
+
+const GUNS_RATE_MAX = Number(process.env.GUNS_RATE_MAX) || 6;
+const GUNS_RATE_WINDOW = Number(process.env.GUNS_RATE_WINDOW) || 60000;
+const gunsHits = new Map(); // adresse IP → horodatages des passes récentes
+
+/** Une passe coûte des centaines de connexions : elle est plafonnée plus bas. */
+async function handleGuns(req, res, url) {
+  const params = url.searchParams;
+  const wait = throttle(clientIp(req), GUNS_RATE_MAX, GUNS_RATE_WINDOW, gunsHits);
+  if (wait) {
+    return sendJson(res, 429, {
+      ok: false,
+      error: 'Too many boosts from this address',
+      retry_after: wait,
+    });
+  }
+
+  const report = await gunsBoost(
+    params.get('user') || params.get('u') || params.get('q') || params.get('target') || '',
+    {
+      views: params.get('views'),
+      rounds: params.get('rounds'),
+      proxies: params.get('proxies'),
+      concurrency: params.get('concurrency'),
+      layers: params.get('layers'),
+      direct: params.get('direct'),
+      read: params.get('read'),
+      refresh: params.get('refresh'),
+    }
+  );
+
+  const { status, ...body } = report;
+  process.stdout.write('[zach-db] guns user=' + (report.slug || '-') + ' mode=' + report.mode +
+    ' vues=' + report.views.accepted + '/' + report.views.attempts + ' ' + status + ' ' + (report.elapsed || 0) + 'ms\n');
+  return sendJson(res, status, body);
+}
+
+async function handleGunsPool(req, res, url) {
+  const wait = throttle(clientIp(req), GUNS_RATE_MAX, GUNS_RATE_WINDOW, gunsHits);
+  if (wait) {
+    return sendJson(res, 429, {
+      ok: false,
+      error: 'Too many pool tests from this address',
+      retry_after: wait,
+    });
+  }
+
+  const pool = await gunsPool({
+    proxies: url.searchParams.get('proxies'),
+    concurrency: url.searchParams.get('concurrency'),
+    refresh: url.searchParams.get('refresh'),
+  });
+  process.stdout.write('[zach-db] guns pool récoltés=' + pool.harvested + ' testés=' + pool.tested +
+    ' vivants=' + pool.alive + ' ' + pool.elapsed + 'ms\n');
+  return sendJson(res, 200, pool);
+}
+
 /* ---------- serveur ---------- */
 
 export function createServer() {
@@ -556,6 +618,7 @@ export function createServer() {
         version: VERSION,
         dir: DATA_DIR,
         discord: Boolean(process.env.DISCORD_TOKEN || process.env.DISCORD_BOT_TOKEN || process.env.ZACH_DB_DISCORD_TOKEN),
+        guns: true,
         uptime: process.uptime(),
       });
     }
@@ -574,6 +637,18 @@ export function createServer() {
         return sendJson(res, 405, { error: 'Use GET /api/discord/user?id=<snowflake>' });
       }
       return await handleDiscord(req, res, url);
+    }
+    if (url.pathname === '/api/guns/proxies') {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return sendJson(res, 405, { error: 'Use GET /api/guns/proxies' });
+      }
+      return await handleGunsPool(req, res, url);
+    }
+    if (url.pathname === '/api/guns/views' || url.pathname === '/api/guns') {
+      if (req.method !== 'GET' && req.method !== 'POST') {
+        return sendJson(res, 405, { error: 'Use GET /api/guns/views?user=<username>' });
+      }
+      return await handleGuns(req, res, url);
     }
     if (url.pathname === '/api/extract' || url.pathname === '/api/group') {
       const group = url.pathname === '/api/group' ||

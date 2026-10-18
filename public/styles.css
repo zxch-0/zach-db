@@ -2473,3 +2473,99 @@ body.is-busy .progress-fill::after,
 body.is-busy .logo-ring,
 body.is-busy .logo-node,
 body.is-busy .pulse { animation-play-state: paused; }
+/* ---------- guns.lol views : réserve de proxys et journal ---------- */
+
+.pool {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .4rem;
+}
+
+.pool-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .5rem .7rem;
+  border: 1px solid currentColor;
+  border-radius: .5rem;
+  font-size: .8rem;
+  opacity: .8;
+}
+
+.pool-item b {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pool-item span {
+  opacity: .6;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pool-empty,
+.log-empty {
+  opacity: .55;
+  font-size: .84rem;
+  padding: .35rem 0;
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: .12rem;
+  max-height: 24rem;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .76rem;
+}
+
+.log-item {
+  display: grid;
+  grid-template-columns: 4.5rem 5rem 1fr;
+  gap: .6rem;
+  padding: .28rem .5rem;
+  border-left: 2px solid currentColor;
+  opacity: .6;
+}
+
+.log-item.is-ok {
+  opacity: 1;
+}
+
+.log-item.is-fail {
+  opacity: .34;
+}
+
+.log-item.is-skip {
+  opacity: .45;
+  border-left-style: dotted;
+}
+
+.log-time {
+  opacity: .6;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-tag {
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.log-msg {
+  overflow-wrap: anywhere;
+  opacity: .85;
+}
+
+#gpoolStats {
+  margin-top: 1rem;
+}
+
+#gproxies:not(:empty) {
+  margin-top: 1rem;
+}
