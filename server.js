@@ -11,6 +11,10 @@
  *   POST /api/extract?paths=1&dir=/x  → corps = liste de noms de fichiers du dossier /x
  *   GET  /api/extract?dir=/x          → tout le dossier /x
  *
+ * Les ressources statiques sont servies avec ETag + no-cache : le navigateur
+ * redemande, le serveur répond 304 si rien n'a changé (aucune feuille de style
+ * périmée après une modification).
+ *
  * Paramètres : mode=last|first|longest|all|custom, regex=…, dedupe=0|1, gz=0
  * Variables : PORT, HOST, ZACH_DB_DIR, ZACH_DB_BODY_LIMIT (octets, 256 Mo par défaut)
  */
@@ -74,13 +78,24 @@ function sendText(res, status, text, type = 'text/plain; charset=utf-8') {
 
 /* ---------- fichiers statiques ---------- */
 
-async function serveFile(req, res, file, type, maxAge) {
+/** Fichier statique : ETag + no-cache, donc jamais de CSS ou de JS périmé.
+ *  Le navigateur conserve la ressource mais la revalide à chaque visite ; si
+ *  rien n'a changé, le serveur répond 304 sans renvoyer un octet. */
+async function serveFile(req, res, file, type, revalidate) {
   try {
     const stat = await fsp.stat(file);
+    const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"';
+    const cacheControl = revalidate ? 'no-cache' : 'no-store';
+    if (revalidate && req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { etag, 'cache-control': cacheControl });
+      return res.end();
+    }
     res.writeHead(200, {
       'content-type': type,
       'content-length': stat.size,
-      'cache-control': maxAge ? 'public, max-age=' + maxAge : 'no-store',
+      'cache-control': cacheControl,
+      etag,
+      'last-modified': stat.mtime.toUTCString(),
     });
     if (req.method === 'HEAD') res.end();
     else fs.createReadStream(file).pipe(res);
@@ -121,7 +136,7 @@ async function serveStatic(req, res, url) {
 
   const type = MIME.get(path.extname(file).toLowerCase());
   if (!type) return sendText(res, 404, 'Not found\n');
-  return serveFile(req, res, file, type, path.basename(file) === 'index.html' ? 0 : 3600);
+  return serveFile(req, res, file, type, path.basename(file) !== 'index.html');
 }
 
 /* ---------- extraction ---------- */

@@ -1,17 +1,18 @@
 # zach-db
 
-Un **regroupement d'outils** pour les gros fichiers `.txt` : une page d'accueil
-liste les outils, un **sélecteur d'outil** dans l'en-tête permet d'en changer
-depuis n'importe quelle page. Un seul outil est en ligne pour l'instant —
-**Combos, trier par site** (extraction ultra-rapide de morceaux `xxxx:xxxx` et
-tri de ces lignes par site).
+**tools by zach** — un regroupement d'outils pour les gros fichiers `.txt`.
+La page d'accueil est une **vitrine** : fond noir animé, logo, instruments
+dessinés sur canvas. Aucun outil n'y est cité — la seule porte d'entrée est le
+**menu déroulant** en haut de chaque page. Un seul outil est en ligne pour
+l'instant : **Combos, trier par site** (extraction ultra-rapide de morceaux
+`xxxx:xxxx` et tri de ces lignes par site).
 
 Site moderne et sobre : noir et blanc, aucun emoji, aucune police externe,
-aucun framework, aucune dépendance npm — le décor (grille en pointillés,
-halos lents, bandeau défilant, halos qui suivent le curseur, fil de lecture,
-apparitions au défilement) est fait de CSS et d'un peu de code, jamais
-d'images. Thème sombre automatique, tout s'arrête si le système demande
-moins de mouvement.
+aucun framework, aucune dépendance npm — le décor (grille en perspective,
+noyau filaire, oscilloscope, halos lents, bandeau défilant, fil de lecture,
+apparitions au défilement) est fait de CSS, de SVG et de canvas, jamais
+d'images. L'accueil est noir imposé ; les pages d'outil suivent le thème du
+système. Tout s'arrête si le système demande moins de mouvement.
 Une barre de progression suit l'avancement du traitement, ligne à ligne.
 
 **Outil en ligne — Combos, trier par site** (`/tools/group-by-site/`)
@@ -28,39 +29,59 @@ clic sur "roblox.com" → Thou_miriba:N2Z6PQXg4XLnTSi
                         user2:pass2
 ```
 
-## Le site : un accueil et des outils
+## Le site : une vitrine, un menu, des outils
 
 ```
-/                          accueil : la collection, une carte par outil
+/                          accueil : la vitrine (fond noir animé, aucun outil cité)
 /tools/group-by-site/      l'outil « Combos — trier par site »
 /api/tools                 le registre des outils, en JSON
 /api/group, /api/extract   les API de cet outil
 ```
 
-- **L'accueil** présente la collection : une carte par outil (ce qu'il fait,
-  ses entrées/sorties, son débit, son API et sa CLI), le socle commun aux
-  outils (local d'abord, un seul moteur pour la page/l'API/la CLI, zéro
-  dépendance) et l'API du hub.
-- **Le sélecteur d'outil** est dans l'en-tête de toutes les pages : il affiche
-  l'outil en cours (en négatif) et ouvre un menu listant l'accueil et chaque
-  outil du registre, avec son statut. Sans JavaScript, ce n'est qu'un lien vers
-  l'accueil — qui liste déjà tout.
-- **Chaque outil a sa page** sous `public/tools/<id>/`, son propre `app.js`
-  logique, et partage l'habillage `public/chrome.js` (sélecteur + décor) ainsi
-  que `public/styles.css`.
+**L'accueil** ne présente aucun outil : c'est la vitrine du site. Fond noir
+imposé (`html.void`, quel que soit le thème du système), et par-dessus, trois
+calques dessinés en direct par `public/home.js` avec un seul
+`requestAnimationFrame` :
 
-Le registre `public/lib/tools.js` est la **source de vérité** : l'accueil, le
-sélecteur et `/api/tools` le lisent. Ajouter un outil :
+- **le vide** — une grille en perspective qui défile vers l'horizon, de la
+  poussière qui se relie au curseur, un halo doux ;
+- **le noyau** — une sphère filaire (12 parallèles × 36 sommets) qui tourne et
+  se penche vers le pointeur, balayée par un anneau de lecture, le logo au
+  centre ;
+- **le signal** — un oscilloscope pleine largeur (bruit lissé, encre qui goutte
+  du haut vers la courbe, balayage vertical), que le curseur soulève en passant.
 
-1. une entrée dans `public/lib/tools.js` (`id`, `name`, `tagline`, `path`,
-   `status: 'available' | 'soon'`, `tags`, `points`, `api`, `cli`…) ;
-2. la page `public/tools/<id>/index.html` (reprendre l'en-tête, le sélecteur et
-   le pied de page d'un outil existant) ;
-3. une carte dans `public/index.html` (`data-tool="<id>"`).
+S'y ajoutent une ligne monospace qui **se décode** caractère par caractère, une
+**télémétrie** vivante (heure locale, images/s, poussière, pointeur, temps
+écoulé), un bandeau défilant, un manifeste en trois règles et un balayage CRT
+très discret. `prefers-reduced-motion` fige tout sur une image fixe composée ;
+sans canvas ni JavaScript, la page reste lisible et noire.
 
-`test/tools.test.js` vérifie que ces trois endroits racontent la même histoire :
-champs complets, identifiants uniques, page présente sur le disque, carte et
-lien sur l'accueil. Un outil `status: 'soon'` apparaît grisé, sans lien.
+**Le menu déroulant** (un `<details>`, donc ouvert même sans JavaScript) est la
+seule citation des outils sur l'accueil. Il est présent sur toutes les pages :
+l'outil en cours est nommé dans le déclencheur, marqué `aria-current` et le
+sélecteur passe en négatif. `public/chrome.js` ne fait que le confort — Échap,
+clic extérieur, flèches — et nomme l'outil courant d'après le registre.
+
+**Chaque outil a sa page** sous `public/tools/<id>/`, sa propre logique
+(`app.js` pour le premier), et partage l'habillage `public/chrome.js`
+(menu + décor) ainsi que `public/styles.css`.
+
+Le registre `public/lib/tools.js` reste la **source de vérité** (`/api/tools` le
+sert tel quel). Ajouter un outil :
+
+1. une entrée dans `public/lib/tools.js` (`id`, `name`, `short`, `tagline`,
+   `path`, `status: 'available' | 'soon'`, `tags`, `points`, `api`, `cli`…) ;
+2. la page `public/tools/<id>/index.html` (reprendre l'en-tête, le menu et le
+   pied de page d'un outil existant) ;
+3. une entrée `<a class="tool-item">` dans le menu déroulant **de chaque page**
+   (accueil compris), et le compte `<b>N online</b>`.
+
+`test/tools.test.js` vérifie que ces endroits racontent la même histoire :
+champs complets, identifiants uniques, page présente sur le disque, menu
+identique au registre sur chaque page — et surtout **aucune citation d'outil sur
+l'accueil en dehors du menu**. Un outil `status: 'soon'` y apparaît grisé, sans
+lien.
 
 ## Comment ça marche
 
@@ -129,20 +150,25 @@ couples `domaine.tld:port`, ignorés par défaut, voir plus bas).
 ## Faire tourner le site
 
 ```bash
-npm start            # http://localhost:3000 → l'accueil
-npm test             # 64 tests (moteurs, workers, serveur HTTP, registre, interface)
+npm start            # http://localhost:3000 → la vitrine
+npm test             # 66 tests (moteurs, workers, serveur HTTP, registre, interface)
 npm run check        # syntaxe de tous les modules
 npm run bench        # mesure sur un fichier généré
 ```
 
-Tout est dans `public/` : l'accueil (`index.html`), la page de l'outil
-(`tools/group-by-site/index.html`, sections 01 à 03 puis les blocs `API` et
-`CLI` dépliables avec bouton « copier »), l'habillage partagé (`chrome.js`) et
-les moteurs (`lib/`). On peut aussi glisser un `.txt` directement sur la zone de
-dépôt. Aucune requête ne part : les seules ressources chargées sont
-`/styles.css`, `/chrome.js`, `/app.js`, `/worker.js` et les modules de
-`public/lib/`. Un dossier servi sans slash final (`/tools/group-by-site`) est
-redirigé (301) vers sa forme avec slash.
+Tout est dans `public/` : l'accueil (`index.html` + `home.js`), la page de
+l'outil (`tools/group-by-site/index.html`, sections 01 à 03 puis les blocs `API`
+et `CLI` dépliables avec bouton « copier »), l'habillage partagé (`chrome.js`)
+et les moteurs (`lib/`). On peut aussi glisser un `.txt` directement sur la zone
+de dépôt. Aucune requête ne part : les seules ressources chargées sont
+`/styles.css`, `/home.js` ou `/app.js`, `/chrome.js`, `/worker.js` et les
+modules de `public/lib/` — le logo est un SVG écrit dans la page, jamais une
+image.
+
+Un dossier servi sans slash final (`/tools/group-by-site`) est redirigé (301)
+vers sa forme avec slash. Les fichiers statiques partent avec `ETag` +
+`no-cache` : le navigateur redemande, le serveur répond `304` si rien n'a
+changé — aucune feuille de style périmée après une modification.
 
 ## Ligne de commande (les plus gros fichiers)
 
@@ -244,8 +270,9 @@ CLI) : un seul code, donc un seul comportement.
 ## Arborescence
 
 ```
-public/index.html                 accueil : la collection d'outils
-public/chrome.js                  habillage partagé : sélecteur d'outil + décor
+public/index.html                 accueil : la vitrine (fond noir animé)
+public/home.js                    moteur visuel de l'accueil (canvas, décodage, télémétrie)
+public/chrome.js                  habillage partagé : menu des outils + décor
 public/styles.css                 noir et blanc, sobre : cartes, halos, bandeau
 public/lib/tools.js               registre des outils (source de vérité)
 public/lib/parse.js               moteur d'extraction (navigateur / serveur / CLI)

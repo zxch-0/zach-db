@@ -131,9 +131,8 @@ test('chrome.js habille l’en-tête : le sélecteur porte l’outil courant', a
   document.querySelectorAll = () => [];
 
   initChrome(); // ne doit rien casser, même sans vrai DOM
-  assert.equal(nodes.get('toolSwitcherName').textContent, 'Combos — group by site',
+  assert.equal(nodes.get('toolSwitcherName').textContent, 'Group by site',
     'l’outil courant est nommé dans l’en-tête');
-  assert.ok(nodes.get('toolSwitcherBtn').listeners.has('click'), 'le déclencheur est cliquable');
   assert.ok(nodes.get('toolSwitcherBtn').listeners.has('keydown'), 'le déclencheur ouvre au clavier');
   assert.ok(nodes.get('toolMenu').listeners.has('keydown'), 'le menu gère Échap et les flèches');
 
@@ -142,6 +141,60 @@ test('chrome.js habille l’en-tête : le sélecteur porte l’outil courant', a
   initChrome();
   assert.equal(nodes.get('toolSwitcherName').textContent, 'All tools', 'accueil : « All tools »');
   location.pathname = '/tools/group-by-site/';
+});
+
+/* Contexte 2D fantôme : toute méthode renvoie une fonction qui ne fait rien,
+   tout gradient répond addColorStop. De quoi exécuter le vrai code de dessin. */
+function fakeContext() {
+  const gradient = { addColorStop() {} };
+  const target = {
+    createLinearGradient: () => gradient,
+    createRadialGradient: () => gradient,
+    lineWidth: 1,
+    fillStyle: '',
+    strokeStyle: '',
+  };
+  return new Proxy(target, {
+    get(box, prop) {
+      if (prop in box) return box[prop];
+      return () => {};
+    },
+    set(box, prop, value) {
+      box[prop] = value;
+      return true;
+    },
+  });
+}
+
+const fakeBox = () => ({ width: 1200, height: 780, top: 0, left: 0, right: 1200, bottom: 780 });
+
+test('home.js dessine ses trois calques, décode sa ligne et remplit la télémétrie', async () => {
+  // le DOM simulé reçoit les identifiants de l'accueil, une taille et un contexte
+  for (const id of [...home.matchAll(/id="([^"]+)"(?![^>]*data-)/g)].map((m) => m[1])) {
+    if (!nodes.has(id)) nodes.set(id, fakeNode(id));
+  }
+  for (const node of nodes.values()) {
+    node.getBoundingClientRect = fakeBox;
+    node.getContext = fakeContext;
+  }
+
+  const decodeNode = fakeNode('decode');
+  const decodeText = home.match(/data-decode="([^"]+)"/)[1];
+  decodeNode.attributes.set('data-decode', decodeText);
+  document.querySelectorAll = (selector) => (selector === '[data-decode]' ? [decodeNode] : []);
+
+  // mouvement réduit : le moteur doit composer une image fixe, sans minuterie
+  globalThis.matchMedia = (query) => ({ media: query, matches: /reduced-motion/.test(query) });
+
+  await import('../public/home.js?smoke=1');
+
+  assert.equal(decodeNode.textContent, decodeText, 'la ligne décodée retombe sur son texte');
+  assert.match(nodes.get('telClock').textContent, /^\d{2}:\d{2}:\d{2}$/, 'heure locale affichée');
+  assert.equal(nodes.get('telFps').textContent, 'still frame', 'mouvement réduit : image fixe annoncée');
+  assert.equal(nodes.get('telPointer').textContent, '0.50 / 0.50', 'pointeur au centre par défaut');
+  assert.equal(Number(nodes.get('telDust').textContent.replace(/[^0-9]/g, '')) > 20, true,
+    'poussière comptée');
+  assert.equal(nodes.get('coreNodes').textContent, '504', '12 parallèles x 36 points + anneau de balayage');
 });
 
 test('app.js et la page de l’outil sont cohérents', () => {
@@ -181,21 +234,27 @@ test('le sélecteur d’outil est présent sur toutes les pages', () => {
     for (const id of ['toolSwitcher', 'toolSwitcherBtn', 'toolSwitcherName', 'toolMenu']) {
       assert.ok(text.includes('id="' + id + '"'), 'élément #' + id + ' absent de la page ' + name);
     }
-    // sans JavaScript, le déclencheur reste un lien vers l'accueil
-    const trigger = text.match(/<a\b(?=[^>]*\bid="toolSwitcherBtn")([^>]*)>/);
-    assert.ok(trigger, 'déclencheur absent de la page ' + name);
-    assert.match(trigger[1], /href="\//, 'le déclencheur mène à l’accueil sans JavaScript');
-    assert.match(trigger[1], /aria-haspopup="true"/);
-    assert.match(trigger[1], /aria-expanded="false"/);
-    assert.match(trigger[1], /aria-controls="toolMenu"/);
-    // le menu est vide dans le HTML : c'est le registre qui le remplit
-    assert.match(text, /<div class="toolswitch-menu" id="toolMenu"[^>]*hidden><\/div>/);
+    // un <details> : le menu s'ouvre au clic, même sans JavaScript
+    assert.match(text, /<details class="toolswitch[^"]*" id="toolSwitcher">/, 'sélecteur <details> sur ' + name);
+    assert.match(text, /<summary class="toolswitch-btn" id="toolSwitcherBtn"/, 'déclencheur <summary> sur ' + name);
+    // le menu est écrit dans la page : aucune navigation ne dépend du registre JS
+    const menu = text.slice(text.indexOf('id="toolMenu"'), text.indexOf('</details>'));
+    assert.match(menu, /class="tool-item"[^>]*href="\//, 'le menu liste au moins l’accueil sur ' + name);
+    assert.match(menu, /<span class="tool-item-text">/, 'entrée de menu renseignée sur ' + name);
   }
 
   // la page outil dit d'où elle vient, et la marque ramène à l'accueil
   assert.match(html, /<nav class="crumb" aria-label="Breadcrumb">/);
   assert.match(html, /<a class="brand" href="\/"/);
   assert.match(home, /<a class="brand" href="\/" aria-current="page">/);
+
+  // le logo est un SVG dessiné sur place, jamais une image
+  for (const [name, text] of [['accueil', home], ['outil', html]]) {
+    assert.match(text, /<svg class="logo" viewBox="0 0 48 48"/, 'logo absent de ' + name);
+    assert.match(text, /class="logo-z"/, 'le Z du logo absent de ' + name);
+    assert.ok(!/<img\b/i.test(text), name + ' ne doit contenir aucune balise <img>');
+    assert.match(text, /<span class="brand-sub">tools by zach<\/span>/, 'signature « tools by zach » sur ' + name);
+  }
 
   // aucune ressource distante n'est chargée : les liens sortants restent des liens utilisateur.
   for (const [name, text] of [['accueil', home], ['outil', html]]) {
@@ -230,6 +289,7 @@ test('aucun emoji dans le site', () => {
     PAGES.tool,
     'public/styles.css',
     'public/app.js',
+    'public/home.js',
     'public/chrome.js',
     'public/worker.js',
     'public/lib/parse.js',
@@ -246,16 +306,25 @@ test('aucun emoji dans le site', () => {
 test('la décoration reste sobre, accessible et sans ressource distante', () => {
   const css = fs.readFileSync(path.join(ROOT, 'public/styles.css'), 'utf8');
 
-  // le décor est bien dans les deux pages (grille, halos, bandeau, fil de lecture)
-  for (const marker of ['ambient-grid', 'ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
+  // le décor est bien dans les deux pages (halos, grain, bandeau, fil de lecture)
+  for (const marker of ['ambient-noise', 'marquee-track', 'scroll-line', 'reveal']) {
     assert.ok(home.includes(marker), 'décor absent de l’accueil : ' + marker);
     assert.ok(html.includes(marker), 'décor absent de la page outil : ' + marker);
   }
+  assert.ok(home.includes('void-canvas'), 'fond animé absent de l’accueil');
+  assert.ok(html.includes('ambient-grid'), 'grille absente de la page outil');
+
+  // l'accueil impose le noir, les autres pages suivent le système
+  assert.match(home, /<html lang="en" class="void">/, 'accueil en fond noir imposé');
+  assert.match(home, /<meta name="color-scheme" content="dark">/);
+  assert.match(html, /<meta name="color-scheme" content="light dark">/);
 
   // les animations se coupent quand l’utilisateur le demande
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/, 'mouvement réduit géré');
-  // le thème suit le réglage du système, sans thème clair imposé
-  assert.match(css, /@media \(prefers-color-scheme: dark\)/, 'thème sombre automatique');
+  // le thème sombre est la base ; le clair suit le système, sauf sur l'accueil
+  assert.match(css, /@media \(prefers-color-scheme: light\) \{\s*:root:not\(\.void\)/,
+    'thème clair réservé aux pages qui suivent le système');
+  assert.match(css, /html\.void \{ color-scheme: dark; \}/, 'accueil : noir imposé');
   // aucune image ni police distante : le décor est fait de CSS
   // (les data URI contiennent eux-mêmes un url(%23n) : on les retire avant)
   const withoutData = css.replace(/url\(\s*(["'])data:[\s\S]*?\1\s*\)/g, 'URL');
@@ -271,9 +340,16 @@ test('la décoration reste sobre, accessible et sans ressource distante', () => 
     if (match[1] === 'none') continue;
     assert.ok(declared.has(match[1]), 'animation sans @keyframes : ' + match[1]);
   }
-  // le sélecteur d'outil est habillé, y compris son menu
-  for (const marker of ['.toolswitch-btn', '.toolswitch-menu', '.tool-item', '.tool-card', '.crumb']) {
+  // sélecteur d'outil, logo et instruments de l'accueil sont habillés
+  for (const marker of [
+    '.toolswitch-btn', '.toolswitch-menu', '.tool-item', '.crumb',
+    '.logo-ring', '.logo-z', '.void-canvas', '.core-canvas', '.telemetry', '.signal-canvas',
+  ]) {
     assert.ok(css.includes(marker), 'style manquant : ' + marker);
+  }
+  // plus aucune carte d'outil dans le CSS : l'accueil ne cite pas les outils
+  for (const marker of ['.tool-card', '.tools-grid', '.tool-meta', '.badge-on']) {
+    assert.ok(!css.includes(marker), 'style d’outil encore présent : ' + marker);
   }
 });
 

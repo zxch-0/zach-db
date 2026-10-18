@@ -56,39 +56,70 @@ test('registre : la page de chaque outil disponible existe', () => {
   }
 });
 
-test('accueil : une carte par outil, avec son lien et son statut', () => {
+/* Le menu déroulant de l'en-tête, et tout ce qui se trouve en dehors. */
+function splitMenu(text, page) {
+  const id = text.indexOf('id="toolSwitcher"');
+  assert.ok(id > -1, 'sélecteur d’outil absent de ' + page);
+  const start = text.lastIndexOf('<details', id); // la classe « has-current » est sur la balise
+  assert.ok(start > -1, 'sélecteur sans <details> dans ' + page);
+  const end = text.indexOf('</details>', start);
+  assert.ok(end > start, 'sélecteur mal fermé dans ' + page);
+  return { block: text.slice(start, end), outside: text.slice(0, start) + text.slice(end + 10) };
+}
+
+const HOME = 'public/index.html';
+const toolPage = (tool) => 'public/tools/' + tool.id + '/index.html';
+const pagePath = (page) => (page === HOME ? '/' : '/' + page.replace(/^public\//, '').replace(/index\.html$/, ''));
+
+test('accueil : aucune citation d’outil en dehors du menu déroulant', () => {
+  const { block, outside } = splitMenu(home, HOME);
+
   for (const tool of TOOLS) {
-    const start = home.indexOf('data-tool="' + tool.id + '"');
-    assert.ok(start > -1, 'carte absente de l’accueil pour ' + tool.id);
-    const card = home.slice(start, home.indexOf('</article>', start));
-    assert.ok(card.includes(tool.name), 'nom absent de la carte ' + tool.id);
-    if (tool.status === 'available') {
-      assert.ok(card.includes('href="' + tool.path + '"'), 'lien absent de la carte ' + tool.id);
-      assert.ok(card.includes('badge-on'), 'badge « available » absent de la carte ' + tool.id);
-      for (const point of tool.points) {
-        assert.ok(card.includes(point), 'point manquant dans la carte ' + tool.id + ' : ' + point);
-      }
-    } else {
-      assert.ok(card.includes('badge-soon'), 'badge « soon » absent de la carte ' + tool.id);
+    // le menu propose bien l'outil…
+    assert.ok(block.includes('href="' + tool.path + '"'), 'outil absent du menu : ' + tool.id);
+    assert.ok(block.includes(tool.name), 'nom absent du menu : ' + tool.id);
+    // …et rien d'autre sur la page n'en parle
+    for (const citation of [tool.path, tool.name, tool.short, tool.id, tool.api, tool.cli]) {
+      assert.ok(!outside.includes(citation), 'l’accueil cite l’outil hors du menu : ' + citation);
     }
   }
 
-  // l'accueil ne contient pas l'outil lui-même : c'est le rôle de sa page
-  assert.ok(!home.includes('id="groupForm"'), 'l’accueil ne doit pas embarquer le traitement');
-  assert.match(home, /id="tools"/, 'section #tools absente de l’accueil');
-  assert.match(home, /<script src="\/chrome\.js" type="module">/, 'habillage non chargé par l’accueil');
+  // l'accueil est une vitrine : aucun traitement, aucun bouton plein, aucun chiffre d'outil
+  assert.ok(!home.includes('id="groupForm"'), 'l’accueil ne traite rien');
+  assert.ok(!home.includes('btn-solid'), 'aucun bouton plein sur l’accueil');
+  assert.ok(!home.includes('data-tool='), 'plus de carte d’outil sur l’accueil');
+  assert.match(home, /id="manifesto"/, 'manifeste présent');
+  assert.match(home, /id="signal"/, 'oscilloscope présent');
+  assert.match(home, /<script src="\/home.js" type="module">/, 'moteur visuel chargé par l’accueil');
 });
 
-test('le sélecteur d’outil est construit depuis le registre', () => {
-  assert.match(chrome, /from '\.\/lib\/tools\.js'/, 'chrome.js n’importe pas le registre');
-  assert.match(chrome, /TOOLS/, 'chrome.js n’utilise pas la liste des outils');
-  assert.match(chrome, /findToolByPath/, 'chrome.js ne retrouve pas l’outil courant');
-  // chaque page du site porte le sélecteur
-  for (const tool of TOOLS) {
-    for (const page of pages(tool)) {
-      assert.match(read(page), /id="toolMenu"/, 'menu absent de ' + page);
+test('le menu déroulant recopie le registre, sur chaque page', () => {
+  const pages = [HOME, ...TOOLS.map(toolPage)];
+  for (const page of pages) {
+    const text = read(page);
+    const { block } = splitMenu(text, page);
+
+    // accueil d'abord, puis chaque outil dans l'ordre du registre
+    const hrefs = [...block.matchAll(/class="tool-item"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(hrefs, ['/', ...TOOLS.map((tool) => tool.path)], 'menu de ' + page);
+
+    for (const tool of TOOLS) {
+      assert.ok(block.includes(tool.name), 'nom manquant dans le menu de ' + page);
+      assert.ok(block.includes(tool.tagline), 'accroche manquante dans le menu de ' + page);
     }
+    assert.ok(block.includes('<b>' + availableTools().length + ' online</b>'),
+      'compte d’outils en ligne faux dans ' + page);
+
+    // une seule entrée courante : la page elle-même
+    const current = [...block.matchAll(/href="([^"]+)"[^>]*aria-current="page"/g)].map((m) => m[1]);
+    assert.deepEqual(current, [pagePath(page)], 'entrée courante du menu de ' + page);
+    assert.equal(block.split('has-current').length - 1, page === HOME ? 0 : 1,
+      'le sélecteur ne passe en négatif que sur une page d’outil (' + page + ')');
   }
+
+  // chrome.js retrouve l'outil courant depuis le registre, pour nommer le sélecteur
+  assert.match(chrome, /from '\.\/lib\/tools\.js'/, 'chrome.js n’importe pas le registre');
+  assert.match(chrome, /findToolByPath/, 'chrome.js ne retrouve pas l’outil courant');
 });
 
 test('recherche par chemin et par identifiant', () => {

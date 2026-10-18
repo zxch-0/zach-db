@@ -1,26 +1,27 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="void">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<title>zach-db — local tools for huge text files</title>
-<meta name="description" content="A collection of fast, local tools for huge .txt files. Pick a tool from the header: group by site is online today. Everything runs in your browser; your files are never uploaded.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000'/><circle cx='15' cy='11' r='3.1' fill='%23fff'/><circle cx='15' cy='21' r='3.1' fill='%23fff'/><rect x='20.5' y='8' width='5' height='16' rx='2.5' fill='%23fff'/></svg>">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#050505">
+<title>zach-db — tools by zach</title>
+<meta name="description" content="zach-db, a monochrome instrument: black, white and motion only. No color, no emoji, no image, no framework, no external request.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='11' fill='%23050505'/><circle cx='24' cy='24' r='20' fill='none' stroke='%23fff' stroke-width='1.6' stroke-dasharray='3 5' opacity='.7'/><circle cx='24' cy='24' r='15' fill='none' stroke='%23fff' stroke-width='1.8'/><path d='M17 18.5h14L17 29.5h14' fill='none' stroke='%23fff' stroke-width='3'/><circle cx='24' cy='24' r='2.2' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="/styles.css">
 <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
 
-<a class="skip" href="#tools">Skip to the tools</a>
+<a class="skip" href="#manifesto">Skip to the manifesto</a>
 
-<!-- ==================== décor ambiant (non lu) ==================== -->
+<!-- ==================== décor : halos, grain, fond animé ==================== -->
 <div class="ambient" aria-hidden="true">
-  <span class="ambient-grid"></span>
   <span class="ambient-glow"></span>
   <span class="ambient-glow ambient-glow--2"></span>
   <span class="ambient-noise"></span>
 </div>
+<canvas class="void-canvas" id="voidCanvas" aria-hidden="true"></canvas>
 <span class="scroll-line" aria-hidden="true"><i class="scroll-line-fill"></i></span>
 
 <!-- ==================== en-tête ==================== -->
@@ -28,20 +29,22 @@
   <div class="wrap head-inner">
     <a class="brand" href="/" aria-current="page">
       <span class="mark" aria-hidden="true">
-        <span class="mark-glyph">z</span>
-        <span class="mark-dot"></span>
+        <svg class="logo" viewBox="0 0 48 48" focusable="false">
+          <circle class="logo-ring" cx="24" cy="24" r="21.4"/>
+          <circle class="logo-orbit" cx="24" cy="24" r="16"/>
+          <path class="logo-z" d="M16.5 17.6h15L16.5 30.4h15"/>
+          <circle class="logo-node" cx="24" cy="24" r="2.2"/>
+        </svg>
       </span>
       <span class="brand-text">
         <strong>zach-db</strong>
-        <span class="brand-sub">Local tools for huge text files</span>
+        <span class="brand-sub">tools by zach</span>
       </span>
     </a>
 
-    <!-- sélecteur d'outil : sans JavaScript, c'est un simple lien vers l'accueil -->
-    <div class="toolswitch" id="toolSwitcher">
-      <a class="toolswitch-btn" id="toolSwitcherBtn" href="/"
-         aria-haspopup="true" aria-expanded="false" aria-controls="toolMenu"
-         title="Choose a tool">
+    <!-- seule porte vers les outils : un <details>, donc ouvert même sans JavaScript -->
+    <details class="toolswitch" id="toolSwitcher">
+      <summary class="toolswitch-btn" id="toolSwitcherBtn" title="Choose a tool">
         <span class="toolswitch-text">
           <span class="toolswitch-kicker">Tool</span>
           <span class="toolswitch-name" id="toolSwitcherName">All tools</span>
@@ -50,17 +53,26 @@
           <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6"
                 stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-      </a>
-      <div class="toolswitch-menu" id="toolMenu" role="menu" aria-label="Choose a tool" hidden></div>
-    </div>
+      </summary>
+      <div class="toolswitch-menu" id="toolMenu" role="menu" aria-label="Choose a tool">
+        <p class="toolswitch-title"><span>Tools</span><b>1 online</b></p>
+        <a class="tool-item" role="menuitem" href="/" aria-current="page">
+          <span class="tool-item-text"><strong>All tools</strong><em>the whole collection</em></span>
+          <span class="tool-item-mark" aria-hidden="true">open</span>
+        </a>
+        <a class="tool-item" role="menuitem" href="/tools/group-by-site/">
+          <span class="tool-item-text"><strong>Combos — group by site</strong><em>Sort huge .txt dumps by site, then pull out the values of any site you click.</em></span>
+          <span class="tool-item-mark" aria-hidden="true">go</span>
+        </a>
+      </div>
+    </details>
 
     <nav class="nav" aria-label="Sections">
-      <a href="#tools">Tools</a>
-      <a href="#ground">Common ground</a>
-      <a href="#api">API</a>
+      <a href="#signal">Signal</a>
+      <a href="#manifesto">Manifesto</a>
     </nav>
 
-    <p class="local-note"><span class="pulse" aria-hidden="true"></span>Local processing — your files are never uploaded</p>
+    <p class="local-note"><span class="pulse" aria-hidden="true"></span>Monochrome · zero external request</p>
 
     <a class="discord-link" href="https://discord.gg/uKZAZS8kY9" target="_blank" rel="noopener noreferrer" aria-label="Join the Discord server (opens in a new tab)">
       <svg class="discord-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -77,213 +89,129 @@
 <main id="top">
 
   <!-- ==================== accroche ==================== -->
-  <section class="hero">
+  <section class="hero hero-void">
     <div class="wrap hero-grid">
 
       <div class="hero-copy">
-        <p class="eyebrow"><span>tool collection</span><span>local first</span><span>zero dependencies</span></p>
+        <p class="kicker"><b>zach-db</b> — monochrome instrument</p>
 
-        <h1>A workbench for<br><span class="shimmer">huge text files.</span></h1>
+        <h1>
+          <span class="line">Pure signal,</span>
+          <span class="line"><span class="shimmer">no noise.</span></span>
+        </h1>
+
+        <p class="decode" data-decode="BLACK / WHITE / MOTION — TOOLS BY ZACH">BLACK / WHITE / MOTION — TOOLS BY ZACH</p>
 
         <p class="lead">
-          zach-db is a set of small, fast tools for <code>.txt</code> dumps that are too big for
-          an editor. Pick one in the header selector: it stays available on every page.
-          One tool is online today — <b>combos, group by site</b>.
+          Everything on this page is drawn with CSS, SVG and canvas: no color, no emoji, no image,
+          no framework, no external request. Only black, white — and motion that freezes into a
+          single still frame the moment your system asks for less movement.
         </p>
 
-        <p class="cta">
-          <a class="btn btn-solid" href="/tools/group-by-site/"><span>Open group by site</span></a>
-          <a class="btn" href="#tools"><span>See the tools</span></a>
-        </p>
-
-        <dl class="specs">
-          <div><dt>tools online</dt><dd><b data-count="1">1</b></dd></div>
-          <div><dt>measured throughput</dt><dd><b data-count="230">230</b> MB/s</dd></div>
-          <div><dt>dependencies</dt><dd><b data-count="0">0</b></dd></div>
-          <div><dt>network transfer</dt><dd><b data-count="0">0</b> bytes</dd></div>
-        </dl>
+        <a class="cue" href="#signal"><span class="cue-line" aria-hidden="true"></span>Scroll</a>
       </div>
 
-      <aside class="demo" aria-hidden="true">
-        <div class="demo-bar">
-          <span class="leds"><i></i><i></i><i></i></span>
-          <span class="demo-title">tools</span>
-          <span class="chip-tag">local</span>
+      <div class="hero-instrument">
+        <div class="core" aria-hidden="true">
+          <canvas class="core-canvas" id="coreCanvas"></canvas>
+          <span class="core-ring"></span>
+          <span class="core-ring core-ring--spin"></span>
+          <span class="core-ticks"></span>
+          <span class="core-logo">
+            <svg class="logo" viewBox="0 0 48 48" focusable="false">
+              <circle class="logo-ring" cx="24" cy="24" r="21.4"/>
+              <circle class="logo-orbit" cx="24" cy="24" r="16"/>
+              <path class="logo-z" d="M16.5 17.6h15L16.5 30.4h15"/>
+              <circle class="logo-node" cx="24" cy="24" r="2.2"/>
+            </svg>
+          </span>
         </div>
-
-        <div class="demo-col">
-          <p class="demo-label">zach-db --tools</p>
-          <pre class="demo-pre" data-typing>id              status     path
-group-by-site   available  /tools/group-by-site/</pre>
-        </div>
-
-        <div class="demo-col demo-out">
-          <p class="demo-label">pick one</p>
-          <ul class="demo-list">
-            <li style="--d:0.05s"><span>combos — group by site</span><b>open</b></li>
-            <li style="--d:0.18s"><span>next tool</span><b>soon</b></li>
-          </ul>
-          <p class="demo-foot">the header selector lists every tool, on every page</p>
-        </div>
-      </aside>
+        <p class="core-caption">wireframe core · <span id="coreNodes">504</span> nodes · pointer reactive</p>
+      </div>
 
     </div>
   </section>
+
+  <!-- ==================== télémétrie ==================== -->
+  <div class="telemetry" aria-hidden="true">
+    <div class="tel">
+      <p class="tel-item"><span class="tel-key">local time</span><span class="tel-val" id="telClock">00:00:00</span></p>
+      <p class="tel-item"><span class="tel-key">frame rate</span><span class="tel-val" id="telFps">-- fps</span></p>
+      <p class="tel-item"><span class="tel-key">dust</span><span class="tel-val" id="telDust">--</span></p>
+      <p class="tel-item"><span class="tel-key">pointer</span><span class="tel-val" id="telPointer">0.50 / 0.50</span></p>
+      <p class="tel-item"><span class="tel-key">uptime</span><span class="tel-val" id="telUptime">00:00</span></p>
+      <p class="tel-item"><span class="tel-key">signal</span><span class="sig"><i></i><i></i><i></i><i></i><i></i></span></p>
+    </div>
+  </div>
 
   <!-- ==================== bandeau défilant ==================== -->
   <div class="marquee" aria-hidden="true">
     <div class="marquee-track">
       <span class="marquee-group">
-        <i>tool collection</i><i>group by site</i><i>xxxx:xxxx</i><i>web worker</i><i>line-by-line streaming</i>
-        <i>zero network transfer</i><i>dependency-free</i><i>page + api + cli</i><i>.txt output</i><i>black and white</i>
+        <i>pure signal</i><i>no noise</i><i>monochrome</i><i>zero external request</i><i>no framework</i>
+        <i>no emoji</i><i>canvas instruments</i><i>motion on demand</i><i>tools by zach</i><i>black and white</i>
       </span>
       <span class="marquee-group">
-        <i>tool collection</i><i>group by site</i><i>xxxx:xxxx</i><i>web worker</i><i>line-by-line streaming</i>
-        <i>zero network transfer</i><i>dependency-free</i><i>page + api + cli</i><i>.txt output</i><i>black and white</i>
+        <i>pure signal</i><i>no noise</i><i>monochrome</i><i>zero external request</i><i>no framework</i>
+        <i>no emoji</i><i>canvas instruments</i><i>motion on demand</i><i>tools by zach</i><i>black and white</i>
       </span>
     </div>
   </div>
 
-  <!-- ==================== les outils ==================== -->
-  <section class="stage" id="tools">
-
-    <header class="section-head reveal">
-      <h2 class="section-title"><span class="num">01</span><span>Tools</span><span class="panel-line" aria-hidden="true"></span></h2>
-      <p class="section-sub">One tool online today. The header selector lists them all — it follows you from page to page.</p>
-    </header>
-
-    <div class="tools-grid">
-
-      <article class="tool-card panel card reveal" data-tool="group-by-site">
-        <header class="tool-head">
-          <span class="tool-index" aria-hidden="true">01</span>
-          <h3 class="tool-name">Combos — group by site</h3>
-          <span class="badge badge-on">available</span>
-        </header>
-
-        <p class="tool-tagline">
-          Sort huge <code>.txt</code> dumps by site, then pull out the values of any site you click.
-        </p>
-
-        <ul class="tool-points">
-          <li>Sites sorted by weight, listed while the file is being read</li>
-          <li>Modes: last pair, first, longest, all, or your own regex</li>
-          <li>Nothing is uploaded: the file never leaves the browser</li>
-        </ul>
-
-        <dl class="tool-meta">
-          <div><dt>input</dt><dd><code>.txt</code> files — drag and drop, several at once</dd></div>
-          <div><dt>output</dt><dd>one <code>.txt</code> per site, or the whole site list</dd></div>
-          <div><dt>throughput</dt><dd>~70 MB/s grouping · ~230 MB/s extracting</dd></div>
-        </dl>
-
-        <p class="tool-tags">
-          <span>web worker</span><span>line-by-line streaming</span><span>dedupe per site</span><span>custom regex</span>
-        </p>
-
-        <footer class="tool-foot">
-          <a class="btn btn-solid" href="/tools/group-by-site/"><span>Open tool</span></a>
-          <code class="tool-cli">POST /api/group</code>
-          <code class="tool-cli">node cli.js file.txt --group</code>
-        </footer>
-      </article>
-
-      <article class="tool-card tool-card--next panel card reveal">
-        <header class="tool-head">
-          <span class="tool-index" aria-hidden="true">02</span>
-          <h3 class="tool-name">Next tool</h3>
-          <span class="badge badge-soon">soon</span>
-        </header>
-
-        <p class="tool-tagline">
-          The collection grows one tool at a time: each one gets its own page, its own API route
-          and its own CLI flag, on the same engine.
-        </p>
-
-        <p class="tool-next">
-          Adding a tool means one entry in <code>public/lib/tools.js</code>, one page under
-          <code>public/tools/&lt;id&gt;/</code>, and one card here.
-        </p>
-
-        <footer class="tool-foot">
-          <a class="btn" href="https://discord.gg/uKZAZS8kY9" target="_blank" rel="noopener noreferrer"><span>Suggest a tool</span></a>
-          <a class="btn" href="#api"><span>Hub API</span></a>
-        </footer>
-      </article>
-
-    </div>
+  <!-- ==================== oscilloscope ==================== -->
+  <section class="signal" id="signal">
+    <canvas class="signal-canvas" id="signalCanvas" aria-hidden="true"></canvas>
+    <p class="signal-label" aria-hidden="true">signal · <b>live oscilloscope</b></p>
+    <p class="signal-note" aria-hidden="true">no input — the page draws itself</p>
   </section>
 
-  <!-- ==================== socle commun ==================== -->
-  <section class="stage" id="ground">
+  <!-- ==================== manifeste ==================== -->
+  <section class="stage" id="manifesto">
 
     <header class="section-head reveal">
-      <h2 class="section-title"><span class="num">02</span><span>Common ground</span><span class="panel-line" aria-hidden="true"></span></h2>
-      <p class="section-sub">Every tool here obeys the same three rules.</p>
+      <h2 class="section-title"><span class="num">01</span><span>Manifesto</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">three rules, no exception</span></h2>
+      <p class="section-sub">The look of this site is not a skin on top of the code: it is the code with nothing added.</p>
     </header>
 
     <div class="principles">
       <article class="panel card reveal">
-        <h3 class="principle-title">Local first</h3>
+        <h3 class="principle-title">Monochrome</h3>
         <p>
-          The file is streamed in a Web Worker, line by line: the page stays responsive and no
-          byte goes over the network. The server API and the CLI exist for files too big for a
-          browser tab, not by default.
+          Black, white, and every grey between them. No color, no emoji, no photograph, no icon
+          font: each mark you see is a border, a gradient, a path or a pixel drawn on a canvas.
         </p>
       </article>
 
       <article class="panel card reveal">
-        <h3 class="principle-title">One engine, three ways in</h3>
+        <h3 class="principle-title">Zero request</h3>
         <p>
-          The same parsing code runs in the browser, behind <code>/api/…</code> and in
-          <code>cli.js</code>. One behaviour, three entry points — so a result is reproducible
-          wherever you got it.
+          No CDN, no analytics, no third-party font, no build step. The page talks to nobody and
+          weighs a few tens of kilobytes — it opens as fast offline as it does online.
         </p>
       </article>
 
       <article class="panel card reveal">
-        <h3 class="principle-title">Zero dependency</h3>
+        <h3 class="principle-title">Motion, on demand</h3>
         <p>
-          No framework, no build step, no external font or image: plain HTML, CSS and modules.
-          Black and white, no emoji, and every animation stops when your system asks for less
-          movement.
+          The grid runs, the core turns, the signal breathes. Ask your system for reduced motion
+          and every layer freezes on a single, still, composed frame — nothing disappears.
         </p>
       </article>
     </div>
-  </section>
 
-  <!-- ==================== api du hub ==================== -->
-  <section class="stage docs">
-
-    <details class="doc card reveal" id="api">
-      <summary><span class="doc-name">Hub API</span><span class="doc-sub">list the tools, then call the one you need</span><span class="doc-mark" aria-hidden="true"></span></summary>
-      <div class="code-card">
-        <div class="code-head"><span>Every tool with its status, page and endpoints</span><button type="button" class="copy" data-copy>Copy</button></div>
-<pre>curl 'https://YOUR-APP.onrender.com/api/tools'</pre>
-      </div>
-      <div class="code-card">
-        <div class="code-head"><span>Then the tool's own endpoint — here, group by site</span><button type="button" class="copy" data-copy>Copy</button></div>
-<pre>curl -X POST --data-binary @file.txt 'https://YOUR-APP.onrender.com/api/group'
-curl -X POST --data-binary @file.txt 'https://YOUR-APP.onrender.com/api/group?site=roblox.com' -o roblox.txt</pre>
-      </div>
-      <p class="doc-foot">
-        Each tool documents its own API and CLI at the bottom of its page.
-        <a href="/tools/group-by-site/#api">Group by site — API and CLI</a>.
-      </p>
-    </details>
-
+    <p class="statement reveal">No color. No emoji. No image. No framework. No request.</p>
   </section>
 
 </main>
 
 <footer class="site-foot">
   <div class="wrap foot-inner">
-    <p class="foot-brand" aria-hidden="true">zach-db</p>
-    <p class="foot-line"><span>1 tool online — more coming</span><span>Local processing · no upload</span></p>
-    <p class="foot-line"><span>Black-and-white design; no emoji or external fonts</span><span>MIT</span></p>
+    <p class="ghost-row" aria-hidden="true"><span class="ghost-word">tools</span><span class="ghost-word">by</span><span class="ghost-word">zach</span></p>
+    <p class="foot-line"><span>tools by zach</span><span>monochrome · zero external request</span></p>
+    <p class="foot-line"><span>Drawn with CSS, SVG and canvas — no image, no emoji, no font loaded</span><span>MIT</span></p>
   </div>
 </footer>
 
-<script src="/chrome.js" type="module"></script>
+<script src="/home.js" type="module"></script>
 </body>
 </html>

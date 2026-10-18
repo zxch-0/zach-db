@@ -13,7 +13,7 @@
  * dans un DOM simulé, donc chaque fonction commence par vérifier ce qu'elle
  * trouve avant d'agir.
  */
-import { TOOLS, findToolByPath, normalizePath } from './lib/tools.js';
+import { findToolByPath, normalizePath } from './lib/tools.js';
 
 const el = (id) => (typeof document.getElementById === 'function' ? document.getElementById(id) : null);
 
@@ -25,139 +25,87 @@ const currentPath = () =>
 
 /* ==================================================================
  * Sélecteur d'outil
- * ================================================================== */
+ * ==================================================================
+ *
+ * C'est la seule porte vers les outils depuis l'accueil : un <details> dont le
+ * menu est écrit dans le HTML (donc ouvert même sans JavaScript), recopié du
+ * registre public/lib/tools.js — test/tools.test.js vérifie que les deux
+ * disent la même chose. Le code ici n'ajoute que le confort : l'outil courant
+ * est nommé et marqué, Échap et le clic extérieur referment, les flèches
+ * parcourent le menu.
+ */
 
-/** Une entrée du menu : accueil + chaque outil du registre. */
-function menuEntries() {
-  const active = findToolByPath(normalizePath(currentPath()));
-  const entries = [{
-    id: 'home',
-    name: 'All tools',
-    hint: 'the whole collection',
-    path: '/',
-    status: 'available',
-    current: !active,
-  }];
-  for (const tool of TOOLS) {
-    entries.push({
-      id: tool.id,
-      name: tool.name,
-      hint: tool.tagline,
-      path: tool.path,
-      status: tool.status,
-      current: tool === active,
-    });
-  }
-  return entries;
-}
-
-function buildMenu(menu, entries) {
-  const fragment = document.createDocumentFragment();
-
-  // rappel du nombre d'outils en ligne, en tête de menu
-  const online = entries.filter((entry) => entry.id !== 'home' && entry.status === 'available').length;
-  const title = document.createElement('p');
-  title.className = 'toolswitch-title';
-  const word = document.createElement('span');
-  word.textContent = online === 1 ? 'Tool' : 'Tools';
-  const count = document.createElement('b');
-  count.textContent = online + ' online';
-  title.append(word, count);
-  fragment.append(title);
-
-  for (const entry of entries) {
-    const soon = entry.status !== 'available';
-    const item = document.createElement(soon ? 'span' : 'a');
-    item.className = 'tool-item' + (soon ? ' tool-item--soon' : '');
-    item.setAttribute('role', 'menuitem');
-    if (soon) item.setAttribute('aria-disabled', 'true');
-    else item.href = entry.path;
-    if (entry.current) item.setAttribute('aria-current', 'page');
-
-    const text = document.createElement('span');
-    text.className = 'tool-item-text';
-    const name = document.createElement('strong');
-    name.textContent = entry.name;
-    const hint = document.createElement('em');
-    hint.textContent = soon ? 'coming soon' : entry.hint;
-    text.append(name, hint);
-
-    const mark = document.createElement('span');
-    mark.className = 'tool-item-mark';
-    mark.textContent = soon ? 'soon' : entry.current ? 'open' : 'go';
-    mark.setAttribute('aria-hidden', 'true');
-
-    item.append(text, mark);
-    fragment.append(item);
-  }
-  menu.replaceChildren(fragment);
-  return [...menu.querySelectorAll('.tool-item')];
-}
-
-/** Ouvre/ferme le menu, clavier et clic extérieur compris. */
+/** Ferme le menu au clic extérieur et au clavier, et marque l'outil courant. */
 function initToolSwitcher() {
   const box = el('toolSwitcher');
   const trigger = el('toolSwitcherBtn');
   const menu = el('toolMenu');
   if (!box || !trigger || !menu) return;
 
-  const entries = menuEntries();
-  const current = entries.find((entry) => entry.current && entry.id !== 'home');
+  const active = findToolByPath(normalizePath(currentPath()));
   const label = el('toolSwitcherName');
-  if (label) label.textContent = current ? current.name : 'All tools';
-  if (box.classList && box.classList.toggle) box.classList.toggle('has-current', Boolean(current));
+  if (label) label.textContent = active ? active.short : 'All tools';
+  if (box.classList && box.classList.toggle) box.classList.toggle('has-current', Boolean(active));
 
-  const items = buildMenu(menu, entries);
+  const items = qsa('.tool-item', menu);
+  for (const item of items) {
+    const href = (typeof item.getAttribute === 'function' && item.getAttribute('href')) || '';
+    const isActive = active ? normalizePath(href) === normalizePath(active.path) : href === '/';
+    if (isActive) item.setAttribute('aria-current', 'page');
+    else if (typeof item.removeAttribute === 'function') item.removeAttribute('aria-current');
+  }
 
-  const setOpen = (open) => {
-    menu.hidden = !open;
-    trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (box.classList) box.classList.toggle('is-open', open);
-    if (open && items.length) items[0].focus();
+  const isOpen = () => Boolean(box.open);
+  const close = () => {
+    box.open = false;
   };
-  const isOpen = () => trigger.getAttribute('aria-expanded') === 'true';
 
-  // sans JavaScript, le déclencheur mène à l'accueil ; avec, il ouvre le menu
-  trigger.addEventListener('click', (event) => {
-    event.preventDefault();
-    setOpen(!isOpen());
-  });
+  if (typeof box.addEventListener === 'function') {
+    box.addEventListener('toggle', () => {
+      trigger.setAttribute('aria-expanded', isOpen() ? 'true' : 'false');
+    });
+  }
 
   trigger.addEventListener('keydown', (event) => {
-    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && items.length) {
       event.preventDefault();
-      setOpen(true);
+      box.open = true;
+      items[event.key === 'ArrowDown' ? 0 : items.length - 1].focus();
     }
   });
 
   menu.addEventListener('keydown', (event) => {
-    const index = items.indexOf(document.activeElement);
+    const index = typeof document.activeElement !== 'undefined' ? items.indexOf(document.activeElement) : -1;
     if (event.key === 'Escape') {
       event.preventDefault();
-      setOpen(false);
+      close();
       trigger.focus();
       return;
     }
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && items.length) {
       event.preventDefault();
-      if (!items.length) return;
       const step = event.key === 'ArrowDown' ? 1 : -1;
       const next = (index + step + items.length) % items.length;
-      items[next < 0 ? 0 : next].focus();
+      items[next].focus();
+      return;
     }
-    if (event.key === 'Tab') setOpen(false);
+    if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      items[event.key === 'Home' ? 0 : items.length - 1].focus();
+    }
   });
 
-  document.addEventListener('click', (event) => {
-    if (!isOpen()) return;
-    const target = event.target;
-    if (box.contains && typeof box.contains === 'function' && box.contains(target)) return;
-    setOpen(false);
-  });
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && isOpen()) setOpen(false);
-  });
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('click', (event) => {
+      if (!isOpen()) return;
+      const target = event.target;
+      if (typeof box.contains === 'function' && box.contains(target)) return;
+      close();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && isOpen()) close();
+    });
+  }
 }
 
 /* ==================================================================

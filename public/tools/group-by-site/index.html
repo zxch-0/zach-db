@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <title>Combos — group by site · zach-db</title>
 <meta name="description" content="zach-db tool: group large .txt files by site and extract xxxx:xxxx pairs. Everything runs in your browser; your files are never uploaded.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23000'/><circle cx='15' cy='11' r='3.1' fill='%23fff'/><circle cx='15' cy='21' r='3.1' fill='%23fff'/><rect x='20.5' y='8' width='5' height='16' rx='2.5' fill='%23fff'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='11' fill='%23050505'/><circle cx='24' cy='24' r='20' fill='none' stroke='%23fff' stroke-width='1.6' stroke-dasharray='3 5' opacity='.7'/><circle cx='24' cy='24' r='15' fill='none' stroke='%23fff' stroke-width='1.8'/><path d='M17 18.5h14L17 29.5h14' fill='none' stroke='%23fff' stroke-width='3'/><circle cx='24' cy='24' r='2.2' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="/styles.css">
 <script>document.documentElement.classList.add('js');</script>
 </head>
@@ -28,31 +28,43 @@
   <div class="wrap head-inner">
     <a class="brand" href="/" title="All tools — zach-db home">
       <span class="mark" aria-hidden="true">
-        <span class="mark-glyph">z</span>
-        <span class="mark-dot"></span>
+        <svg class="logo" viewBox="0 0 48 48" focusable="false">
+          <circle class="logo-ring" cx="24" cy="24" r="21.4"/>
+          <circle class="logo-orbit" cx="24" cy="24" r="16"/>
+          <path class="logo-z" d="M16.5 17.6h15L16.5 30.4h15"/>
+          <circle class="logo-node" cx="24" cy="24" r="2.2"/>
+        </svg>
       </span>
       <span class="brand-text">
         <strong>zach-db</strong>
-        <span class="brand-sub">Local tools for huge text files</span>
+        <span class="brand-sub">tools by zach</span>
       </span>
     </a>
 
-    <!-- sélecteur d'outil : sans JavaScript, c'est un simple lien vers l'accueil -->
-    <div class="toolswitch" id="toolSwitcher">
-      <a class="toolswitch-btn" id="toolSwitcherBtn" href="/"
-         aria-haspopup="true" aria-expanded="false" aria-controls="toolMenu"
-         title="Choose a tool">
+    <!-- seule porte vers les outils : un <details>, donc ouvert même sans JavaScript -->
+    <details class="toolswitch has-current" id="toolSwitcher">
+      <summary class="toolswitch-btn" id="toolSwitcherBtn" title="Choose a tool">
         <span class="toolswitch-text">
           <span class="toolswitch-kicker">Tool</span>
-          <span class="toolswitch-name" id="toolSwitcherName">All tools</span>
+          <span class="toolswitch-name" id="toolSwitcherName">Group by site</span>
         </span>
         <svg class="toolswitch-caret" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
           <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" stroke-width="1.6"
                 stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-      </a>
-      <div class="toolswitch-menu" id="toolMenu" role="menu" aria-label="Choose a tool" hidden></div>
-    </div>
+      </summary>
+      <div class="toolswitch-menu" id="toolMenu" role="menu" aria-label="Choose a tool">
+        <p class="toolswitch-title"><span>Tools</span><b>1 online</b></p>
+        <a class="tool-item" role="menuitem" href="/">
+          <span class="tool-item-text"><strong>All tools</strong><em>the whole collection</em></span>
+          <span class="tool-item-mark" aria-hidden="true">go</span>
+        </a>
+        <a class="tool-item" role="menuitem" href="/tools/group-by-site/" aria-current="page">
+          <span class="tool-item-text"><strong>Combos — group by site</strong><em>Sort huge .txt dumps by site, then pull out the values of any site you click.</em></span>
+          <span class="tool-item-mark" aria-hidden="true">open</span>
+        </a>
+      </div>
+    </details>
 
     <nav class="nav" aria-label="Sections">
       <a href="#process">Process</a>
@@ -105,7 +117,7 @@
 
         <dl class="specs">
           <div><dt>measured throughput</dt><dd><b data-count="230">230</b> MB/s</dd></div>
-          <div><dt>tests</dt><dd><b data-count="64">64</b></dd></div>
+          <div><dt>tests</dt><dd><b data-count="66">66</b></dd></div>
           <div><dt>dependencies</dt><dd><b data-count="0">0</b></dd></div>
           <div><dt>network transfer</dt><dd><b data-count="0">0</b> bytes</dd></div>
         </dl>

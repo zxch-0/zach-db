@@ -28,22 +28,27 @@ test.after(() => {
   fs.rmSync(DATA_DIR, { recursive: true, force: true });
 });
 
-test('l\'accueil liste les outils, la page outil porte le traitement', async () => {
-  // ---- accueil : le hub ----
+test('l\'accueil est une vitrine, la page outil porte le traitement', async () => {
+  // ---- accueil : aucune citation d'outil hors du menu déroulant ----
   const page = await fetch(base + '/');
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type'), /text\/html/);
   const html = await page.text();
   assert.match(html, /zach-db/);
-  assert.match(html, /<html lang="en">/);
+  assert.match(html, /<html lang="en" class="void">/, 'accueil en fond noir');
   assert.match(html, /id="toolSwitcherBtn"/, 'sélecteur d\'outil sur l\'accueil');
 
   const { TOOLS, availableTools } = await import('../public/lib/tools.js');
+  const menuStart = html.indexOf('id="toolSwitcher"');
+  const menuEnd = html.indexOf('</details>', menuStart);
+  const menu = html.slice(menuStart, menuEnd);
+  const outside = html.slice(0, menuStart) + html.slice(menuEnd);
   for (const tool of TOOLS) {
-    assert.ok(html.includes('data-tool="' + tool.id + '"'), 'carte de ' + tool.id + ' sur l\'accueil');
-    assert.ok(html.includes('href="' + tool.path + '"'), 'lien vers ' + tool.path + ' sur l\'accueil');
+    assert.ok(menu.includes('href="' + tool.path + '"'), 'outil absent du menu de l\'accueil');
+    assert.ok(!outside.includes(tool.path), 'l\'accueil cite un outil hors du menu : ' + tool.path);
+    assert.ok(!outside.includes(tool.id), 'l\'accueil nomme un outil hors du menu : ' + tool.id);
   }
-  assert.ok(!html.includes('id="groupForm"'), 'l\'accueil ne traite rien lui-même');
+  assert.ok(!html.includes('id="groupForm"'), 'l\'accueil ne traite rien');
 
   // ---- page de l\'outil ----
   const toolPath = availableTools()[0].path;
@@ -62,6 +67,7 @@ test('l\'accueil liste les outils, la page outil porte le traitement', async () 
   for (const [file, type] of [
     ['/styles.css', /text\/css/],
     ['/app.js', /javascript/],
+    ['/home.js', /javascript/],
     ['/chrome.js', /javascript/],
     ['/worker.js', /javascript/],
     ['/lib/parse.js', /javascript/],
@@ -85,6 +91,23 @@ test('l\'accueil liste les outils, la page outil porte le traitement', async () 
   const { MODES } = await import('../public/lib/parse.js');
   const values = [...toolHtml.matchAll(/name="gmode" value="([a-z]+)"/g)].map((match) => match[1]);
   assert.deepEqual(values, MODES);
+});
+
+test('statiques : ETag + no-cache, donc 304 si rien n\'a changé', async () => {
+  const first = await fetch(base + '/styles.css');
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get('cache-control'), 'no-cache', 'la feuille de style est revalidée');
+  const etag = first.headers.get('etag');
+  assert.ok(etag, 'ETag présent');
+  await first.text();
+
+  const cached = await fetch(base + '/styles.css', { headers: { 'if-none-match': etag } });
+  assert.equal(cached.status, 304, 'rien à renvoyer tant que le fichier n\'a pas changé');
+
+  // les pages, elles, ne sont jamais conservées
+  const page = await fetch(base + '/');
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  await page.text();
 });
 
 test('api tools : le registre est servi en JSON', async () => {
