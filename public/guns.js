@@ -137,9 +137,22 @@ function renderPool(pool) {
 async function testPool() {
   const button = el('gpool');
   if (button) button.disabled = true;
-  note('gpoolNote', 'harvesting the public lists, then trying a tunnel + TLS on each candidate…');
+  const waiting = 'harvesting the public lists, then trying a tunnel + TLS on each candidate…';
+  note('gpoolNote', waiting);
+  // The server answers only once the whole sweep is over; without a clock the
+  // note looks frozen, and nothing used to give up if the sweep never ended.
+  const startedAt = Date.now();
+  const ticker = setInterval(() => {
+    const seconds = Math.round((Date.now() - startedAt) / 1000);
+    note('gpoolNote', waiting + ' ' + seconds + ' s elapsed — the server answers only when the sweep is over.');
+  }, 1000);
+  const control = typeof AbortController === 'function' ? new AbortController() : null;
+  const giveUp = setTimeout(() => { if (control) control.abort(); }, 180000);
   try {
-    const response = await fetch('/api/guns/proxies', { headers: { accept: 'application/json' } });
+    const response = await fetch('/api/guns/proxies', {
+      headers: { accept: 'application/json' },
+      signal: control ? control.signal : undefined,
+    });
     const payload = await response.json();
     if (!response.ok) {
       note('gpoolNote', payload.error || 'The pool could not be tested.');
@@ -151,8 +164,12 @@ async function testPool() {
       ? payload.alive + ' usable proxies out of ' + payload.tested + ' tested — a view costs one address, so that is the ceiling.'
       : 'No proxy answered: the boost will fall back to the server address.');
   } catch (err) {
-    note('gpoolNote', 'The server could not be reached: ' + ((err && err.message) || 'network error'));
+    note('gpoolNote', control && control.signal.aborted
+      ? 'No answer after three minutes: the server is overloaded or waking up — try again in a moment.'
+      : 'The server could not be reached: ' + ((err && err.message) || 'network error'));
   } finally {
+    clearInterval(ticker);
+    clearTimeout(giveUp);
     if (button) button.disabled = false;
   }
 }

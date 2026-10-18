@@ -414,9 +414,14 @@ export function tunnel(proxy, host, port, timeoutMs) {
     const fail = (err) => {
       if (settled) return;
       settled = true;
+      clearTimeout(hard);
       request.destroy();
       reject(err);
     };
+    // Plafond absolu : un proxy qui laisse couler un octet de temps en temps
+    // réarme les délais d'inactivité ; ce minuteur, lui, ne bouge jamais.
+    const hard = setTimeout(() => fail(new Error('tunnel bloqué')), timeoutMs * 2 + 1000);
+    if (hard.unref) hard.unref();
 
     request.on('connect', (response, socket) => {
       if (response.statusCode !== 200) {
@@ -427,6 +432,7 @@ export function tunnel(proxy, host, port, timeoutMs) {
       secure.once('secureConnect', () => {
         if (settled) return;
         settled = true;
+        clearTimeout(hard);
         resolve(secure);
       });
       secure.once('error', fail);
@@ -591,9 +597,15 @@ function socks5Tunnel(proxy, host, port, timeoutMs) {
     const fail = (err) => {
       if (settled) return;
       settled = true;
+      clearTimeout(hard);
       socket.destroy();
       reject(err);
     };
+    // Trois étages (connexion, poignée de main, TLS) → trois fois le délai,
+    // en absolu : les délais d'inactivité des sockets peuvent être repoussés
+    // sans fin par un proxy qui goutte des octets, pas celui-ci.
+    const hard = setTimeout(() => fail(new Error('tunnel SOCKS5 bloqué')), timeoutMs * 3 + 1000);
+    if (hard.unref) hard.unref();
 
     socket.setTimeout(timeoutMs, () => fail(new Error('SOCKS5 injoignable')));
     socket.once('error', fail);
@@ -606,6 +618,7 @@ function socks5Tunnel(proxy, host, port, timeoutMs) {
           secure.once('secureConnect', () => {
             if (settled) return;
             settled = true;
+            clearTimeout(hard);
             resolve(secure);
           });
           secure.once('error', fail);
@@ -762,27 +775,50 @@ export async function validate(proxies, options = {}) {
 
       const proxy = proxies[index];
       const at = Date.now();
+      // Plafond dur par candidat, borné par la date butoir : sans lui, un
+      // proxy qui répond au compte-goutte retient un worker indéfiniment —
+      // socket.setTimeout ne mesure que l'inactivité et se réarme à chaque
+      // octet — et la page n'a alors jamais de réponse.
+      const margin = Number.isFinite(deadline) ? deadline - at : Infinity;
+      if (margin <= 0) return;
+      const cap = Math.min(timeout * 2 + 1000, margin + 250);
+      let current = null;
+      const guard = new Promise((_, reject) => {
+        const timer = setTimeout(() => {
+          if (current) current.destroy();
+          reject(new Error('candidat coincé au-delà du plafond'));
+        }, cap);
+        if (timer.unref) timer.unref();
+      });
       try {
-        const socket = await connectVia(proxy, PROFILE_HOST, PORT, timeout);
-        try {
-          const response = await overSocket(socket, {
-            host: PROFILE_HOST,
-            path: '/',
-            method: 'GET',
-            headers: {
-              ...documentHeaders(BROWSERS[0], Math.random),
-              accept: 'text/html,*/*',
-              connection: 'close',
-            },
-            timeoutMs: timeout,
-            maxBytes: 2048,
-          });
-          const status = response.status;
-          if (status >= 400 && status !== 403 && status !== 429) throw new Error('HTTP ' + status);
-          alive.push({ ...proxy, ms: Date.now() - at, status, challenged: status === 403 || status === 429 });
-        } finally {
-          socket.destroy();
-        }
+        const entry = await Promise.race([
+          (async () => {
+            const socket = await connectVia(proxy, PROFILE_HOST, PORT, timeout);
+            current = socket;
+            try {
+              const response = await overSocket(socket, {
+                host: PROFILE_HOST,
+                path: '/',
+                method: 'GET',
+                headers: {
+                  ...documentHeaders(BROWSERS[0], Math.random),
+                  accept: 'text/html,*/*',
+                  connection: 'close',
+                },
+                timeoutMs: timeout,
+                maxBytes: 2048,
+              });
+              const status = response.status;
+              if (status >= 400 && status !== 403 && status !== 429) throw new Error('HTTP ' + status);
+              return { ...proxy, ms: Date.now() - at, status, challenged: status === 403 || status === 429 };
+            } finally {
+              socket.destroy();
+            }
+          })(),
+          guard,
+        ]);
+        current = null;
+        alive.push(entry);
       } catch (err) {
         dead.push({ ...proxy, error: (err && err.message) || 'échec' });
       }
