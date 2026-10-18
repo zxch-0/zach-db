@@ -39,3 +39,11 @@ services:
         value: "60000"
       - key: GUNS_RATE_MAX
         value: "6"
+      - key: GUNS_VALIDATE_CONCURRENCY
+        value: "120"
+      - key: GUNS_VALIDATE_TIMEOUT_MS
+        value: "5000"
+      - key: GUNS_VALIDATE_MAX
+        value: "0"
+      - key: GUNS_PROXY_PER_SOURCE
+        value: "400"

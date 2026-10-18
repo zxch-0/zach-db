@@ -207,11 +207,13 @@ BLAKE3 et SHA-256 (`node:crypto`) sans la moindre dépendance, et
 octets).
 
 **Les proxys.** `public/lib/guns.js` liste sept sources publiques (proxifly,
-TheSpeedX, monosans, clarketm, ShiftyTR, proxy-list.download, proxyscrape). Le
-serveur les récolte, dédoublonne, puis ne garde un candidat que si un vrai
-`CONNECT` suivi d'une poignée de main TLS vers `guns.lol:443` aboutit — les
-listes gratuites n'en fournissent que 5 à 15 %. Le transport est écrit à la main
-sur `node:http` + `node:tls` : aucune dépendance, et le proxy ne voit jamais
+monosans, mmpx12, roosterkid, zloi-user, hookzof, Geonode). Toutes sont
+revérifiées en continu et annoncent explicitement le protocole : les listes
+fourre-tout n'offrent que 5 à 15 % de survivants, celles-ci bien davantage. Un
+candidat ne passe que si un vrai `CONNECT` (ou une poignée de main SOCKS5) suivi
+d'une requête HTTP complète vers `guns.lol:443` répond en 2xx ou en 3xx.
+Le transport est écrit à la main
+sur `node:http`, `node:net` et `node:tls` : aucune dépendance, et le proxy ne voit jamais
 autre chose qu'un tunnel chiffré.
 
 **Une vue par adresse.** guns.lol déduplique les vues par IP et par jour : un
@@ -228,7 +230,10 @@ GUNS_VIEWS=15                 # vues par tour
 GUNS_ROUNDS=1                 # tours successifs
 GUNS_PROXIES=1500             # proxys récoltés au plus
 GUNS_CONCURRENCY=6            # vues en parallèle
-GUNS_VALIDATE_CONCURRENCY=80  # tunnels testés en parallèle
+GUNS_VALIDATE_CONCURRENCY=120 # tunnels testés en parallèle
+GUNS_VALIDATE_TIMEOUT_MS=5000 # délai d'un test de proxy
+GUNS_VALIDATE_MAX=0           # 0 = tester toute la réserve
+GUNS_PROXY_PER_SOURCE=400     # lignes gardées par liste
 GUNS_TIMEOUT_MS=8000          # délai d'une requête
 GUNS_BUDGET_MS=60000          # budget d'une passe complète
 GUNS_RATE_MAX=6               # passes par adresse et par minute

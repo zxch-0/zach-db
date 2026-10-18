@@ -15,6 +15,7 @@
  * échoue trois fois de suite est abandonnée en cours de route.
  */
 import http from 'node:http';
+import net from 'node:net';
 import tls from 'node:tls';
 import { createHash } from 'node:crypto';
 import {
@@ -31,6 +32,7 @@ import {
   extractSlug,
   guessViews,
   parseChallenge,
+  parseProxyJson,
   parseProxyList,
   pathOf,
   pickBrowser,
@@ -521,9 +523,108 @@ function overSocket(socket, request) {
   });
 }
 
+/**
+ * Poignée de main SOCKS5 (sans authentification) : on négocie, on demande la
+ * connexion à « host:port » par nom de domaine — c'est le proxy qui résout,
+ * donc aucune dépendance à l'IPv6 local.
+ */
+function socks5Handshake(socket, host, port, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const name = Buffer.from(host, 'utf8');
+    let stage = 0;
+    let buffer = Buffer.alloc(0);
+    let settled = false;
+
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      socket.removeListener('data', onData);
+      socket.removeListener('error', onError);
+      socket.setTimeout(0);
+      if (err) {
+        socket.destroy();
+        reject(err);
+      } else {
+        resolve(socket);
+      }
+    };
+
+    const onError = (err) => finish(err);
+    const onData = (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+
+      if (stage === 0) {
+        if (buffer.length < 2) return;
+        if (buffer[0] !== 0x05) return finish(new Error('SOCKS5 version ' + buffer[0]));
+        if (buffer[1] !== 0x00) return finish(new Error('SOCKS5 auth ' + buffer[1]));
+        buffer = buffer.subarray(2);
+        stage = 1;
+        socket.write(Buffer.concat([
+          Buffer.from([0x05, 0x01, 0x00, 0x03, name.length]),
+          name,
+          Buffer.from([(port >> 8) & 0xff, port & 0xff]),
+        ]));
+        return;
+      }
+
+      if (buffer.length < 5) return;
+      const status = buffer[1];
+      if (status !== 0x00) return finish(new Error('SOCKS5 refus ' + status));
+      const kind = buffer[3];
+      const need = kind === 0x01 ? 10 : kind === 0x04 ? 22 : 7 + buffer[4];
+      if (buffer.length < need) return;
+      finish(null);
+    };
+
+    socket.setTimeout(timeoutMs, () => finish(new Error('SOCKS5 trop lent')));
+    socket.on('data', onData);
+    socket.on('error', onError);
+    socket.write(Buffer.from([0x05, 0x01, 0x00]));
+  });
+}
+
+/** Tunnel SOCKS5 puis TLS, sur le même modèle que le CONNECT. */
+function socks5Tunnel(proxy, host, port, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: proxy.host, port: proxy.port });
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(err);
+    };
+
+    socket.setTimeout(timeoutMs, () => fail(new Error('SOCKS5 injoignable')));
+    socket.once('error', fail);
+    socket.once('connect', () => {
+      socket.setTimeout(0);
+      socks5Handshake(socket, host, port, timeoutMs)
+        .then(() => {
+          if (settled) return;
+          const secure = tls.connect({ socket, servername: host, rejectUnauthorized: false });
+          secure.once('secureConnect', () => {
+            if (settled) return;
+            settled = true;
+            resolve(secure);
+          });
+          secure.once('error', fail);
+          secure.setTimeout(timeoutMs, () => fail(new Error('TLS trop lent')));
+        })
+        .catch(fail);
+    });
+  });
+}
+
+/** Ouvre un tunnel vers « host:port » : CONNECT, ou SOCKS5 selon le proxy. */
+export function connectVia(proxy, host, port, timeoutMs) {
+  if (proxy && proxy.scheme === 'socks5') return socks5Tunnel(proxy, host, port, timeoutMs);
+  return tunnel(proxy, host, port, timeoutMs);
+}
+
 /** Une requête à travers un proxy : un tunnel, une requête, on referme. */
 async function throughProxy(proxy, request, ctx) {
-  const socket = await tunnel(proxy, request.host, PORT, ctx.timeoutMs);
+  const socket = await connectVia(proxy, request.host, PORT, ctx.timeoutMs);
   try {
     return await overSocket(socket, { ...request, timeoutMs: ctx.timeoutMs });
   } finally {
@@ -591,10 +692,12 @@ export async function harvest(options = {}) {
         headers: { accept: 'text/plain,*/*' },
         signal: timeoutSignal(timeout),
       });
-      if (!response.ok) return { name: source.name, text: null, error: 'HTTP ' + response.status };
-      return { name: source.name, text: await response.text(), error: null };
+      if (!response.ok) {
+        return { name: source.name, type: source.type, scheme: source.scheme, text: null, error: 'HTTP ' + response.status };
+      }
+      return { name: source.name, type: source.type, scheme: source.scheme, text: await response.text(), error: null };
     } catch (err) {
-      return { name: source.name, text: null, error: (err && err.message) || 'réseau' };
+      return { name: source.name, type: source.type, scheme: source.scheme, text: null, error: (err && err.message) || 'réseau' };
     }
   }));
 
@@ -606,9 +709,10 @@ export async function harvest(options = {}) {
       report.push({ name: answer.name, count: 0, error: answer.error });
       continue;
     }
+    const parser = answer.type === 'json' ? parseProxyJson : parseProxyList;
     let kept = 0;
-    for (const proxy of parseProxyList(answer.text, { limit: perSource })) {
-      const key = proxy.host + ':' + proxy.port;
+    for (const proxy of parser(answer.text, { limit: perSource, scheme: answer.scheme })) {
+      const key = (proxy.scheme || 'http') + '://' + proxy.host + ':' + proxy.port;
       if (seen.has(key)) continue;
       seen.add(key);
       proxies.push(proxy);
@@ -631,11 +735,17 @@ export function clearCache() {
   CACHE.sources = [];
 }
 
-/** Trie les candidats par un vrai tunnel + TLS vers guns.lol:443. */
+/**
+ * Trie les candidats pour de bon : tunnel CONNECT (ou SOCKS5), puis une vraie
+ * requête HTTP sur `guns.lol:443`. Une poignée de main TLS seule ne prouve
+ * rien — un proxy peut la terminer et ne jamais relayer. Seuls 2xx et 3xx
+ * passent ; un 403 ou un 429 reste dans la réserve, mais classé après.
+ */
 export async function validate(proxies, options = {}) {
-  const concurrency = num(options.concurrency, 80, 1, 400);
-  const timeout = num(options.timeout, 4500, 800, 20000);
-  const max = num(options.max, 0, 0, 6000);
+  const env = typeof process !== 'undefined' && process.env ? process.env : {};
+  const concurrency = num(options.concurrency || env.GUNS_VALIDATE_CONCURRENCY, 120, 1, 400);
+  const timeout = num(options.timeout || env.GUNS_VALIDATE_TIMEOUT_MS, 5000, 800, 20000);
+  const max = num(options.max || env.GUNS_VALIDATE_MAX, 0, 0, 6000);
   const deadline = options.deadline || Infinity;
 
   const alive = [];
@@ -653,9 +763,26 @@ export async function validate(proxies, options = {}) {
       const proxy = proxies[index];
       const at = Date.now();
       try {
-        const socket = await tunnel(proxy, PROFILE_HOST, PORT, timeout);
-        socket.destroy();
-        alive.push({ ...proxy, ms: Date.now() - at });
+        const socket = await connectVia(proxy, PROFILE_HOST, PORT, timeout);
+        try {
+          const response = await overSocket(socket, {
+            host: PROFILE_HOST,
+            path: '/',
+            method: 'GET',
+            headers: {
+              ...documentHeaders(BROWSERS[0], Math.random),
+              accept: 'text/html,*/*',
+              connection: 'close',
+            },
+            timeoutMs: timeout,
+            maxBytes: 2048,
+          });
+          const status = response.status;
+          if (status >= 400 && status !== 403 && status !== 429) throw new Error('HTTP ' + status);
+          alive.push({ ...proxy, ms: Date.now() - at, status, challenged: status === 403 || status === 429 });
+        } finally {
+          socket.destroy();
+        }
       } catch (err) {
         dead.push({ ...proxy, error: (err && err.message) || 'échec' });
       }
@@ -663,6 +790,12 @@ export async function validate(proxies, options = {}) {
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, proxies.length || 1) }, worker));
+
+  // les proxys propres d'abord, les plus rapides en tête : un 403 de Cloudflare
+  // n'est pas un échec, mais il passe après ceux qui répondent vraiment.
+  alive.sort((a, b) =>
+    (Number(Boolean(a.challenged)) - Number(Boolean(b.challenged))) || (a.ms - b.ms));
+
   return { alive, dead, tested: alive.length + dead.length, ms: Date.now() - started };
 }
 

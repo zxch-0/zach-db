@@ -78,9 +78,10 @@ export const viewPath = (slug) => VIEW_PATH + slug;
 export const viewUrl = (slug) => PROFILE_BASE + VIEW_PATH + slug;
 export const recordUrl = () => PROFILE_BASE + RECORD_PATH;
 
-/** « hote:port », pour les journaux. */
+/** « hote:port », pour les journaux. Le schéma n'apparaît que s'il n'est pas http. */
 export function describeProxy(proxy) {
-  return proxy ? proxy.host + ':' + proxy.port : 'direct';
+  if (!proxy) return 'direct';
+  return (proxy.scheme ? proxy.scheme + '://' : '') + proxy.host + ':' + proxy.port;
 }
 
 /* ------------------------------------------------------------------ *
@@ -268,23 +269,41 @@ export function pathOf(url) {
 /*
  * Sept listes publiques, tenues à jour par d'autres. Elles tombent parfois :
  * le serveur encaisse l'échec d'une source sans s'arrêter.
+ *
+ * Le choix des listes fait toute la différence. Les listes « http » fourre-tout
+ * charrient des milliers d'adresses mortes ; celles-ci sont revérifiées en
+ * continu et annoncent explicitement le protocole, donc elles contiennent une
+ * majorité de proxys réellement capables de CONNECT. `scheme` et `type` sont
+ * facultatifs : sans eux, une source est une liste texte de proxys HTTP.
  */
 export const PROXY_SOURCES = [
-  { name: 'proxifly', url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt' },
-  { name: 'TheSpeedX', url: 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt' },
-  { name: 'monosans', url: 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt' },
-  { name: 'clarketm', url: 'https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt' },
-  { name: 'ShiftyTR', url: 'https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt' },
-  { name: 'proxy-list.download', url: 'https://www.proxy-list.download/api/v1/get?type=http' },
-  { name: 'proxyscrape', url: 'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all' },
+  { name: 'monosans', url: 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/https.txt' },
+  { name: 'proxifly', url: 'https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt' },
+  { name: 'mmpx12', url: 'https://raw.githubusercontent.com/mmpx12/proxy-list/master/https.txt' },
+  { name: 'roosterkid', url: 'https://raw.githubusercontent.com/roosterkid/openproxylist/main/HTTPS_RAW.txt' },
+  { name: 'zloi-user', url: 'https://raw.githubusercontent.com/zloi-user/hideip.me/main/https.txt' },
+  { name: 'hookzof', url: 'https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt', scheme: 'socks5' },
+  { name: 'geonode', url: 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps%2Csocks5', type: 'json' },
 ];
 
-/** Une ligne de liste → { host, port, auth }. Les lignes inutilisables sont ignorées. */
-export function parseProxyLine(line) {
+/**
+ * Une ligne de liste → { host, port, auth, scheme? }. Le schéma vient de la
+ * ligne si elle en porte un (« socks5://… »), sinon de `options.scheme`. Il
+ * n'est posé sur l'objet que lorsqu'il n'est pas « http » : la forme de retour
+ * historique est donc préservée à l'octet près pour les listes HTTP.
+ */
+export function parseProxyLine(line, options = {}) {
   let text = String(line == null ? '' : line).trim();
   if (!text || text.startsWith('#') || text.startsWith('//')) return null;
 
-  text = text.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
+  let scheme = options.scheme === 'socks5' ? 'socks5' : 'http';
+  const declared = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(text);
+  if (declared) {
+    const name = declared[1].toLowerCase();
+    scheme = name === 'socks5' || name === 'socks5h' || name === 'socks' ? 'socks5' : 'http';
+    text = text.slice(declared[0].length);
+  }
+
   const slash = text.indexOf('/');
   if (slash !== -1) text = text.slice(0, slash);
 
@@ -301,20 +320,67 @@ export function parseProxyLine(line) {
   const port = Number(text.slice(colon + 1).trim());
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null;
   if (!/^[A-Za-z0-9._-]+$/.test(host)) return null;
-  return { host, port, auth: auth || null };
+
+  const proxy = { host, port, auth: auth || null };
+  if (scheme !== 'http') proxy.scheme = scheme;
+  return proxy;
 }
 
-/** Toute une liste, dédoublonnée par hote:port. */
+/** Toute une liste, dédoublonnée par schéma et par hote:port. */
 export function parseProxyList(text, options = {}) {
   const limit = Number(options.limit) > 0 ? Number(options.limit) : Infinity;
   const seen = new Set();
   const out = [];
   for (const raw of String(text || '').split(/[\s,;]+/)) {
-    const proxy = parseProxyLine(raw);
+    const proxy = parseProxyLine(raw, options);
     if (!proxy) continue;
-    const key = proxy.host + ':' + proxy.port;
+    const key = (proxy.scheme || 'http') + '://' + proxy.host + ':' + proxy.port;
     if (seen.has(key)) continue;
     seen.add(key);
+    out.push(proxy);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Une liste JSON (Geonode) : le protocole, l'anonymat et la date du dernier
+ * contrôle sont fournis, donc rien n'est deviné. « http » gagne quand il est
+ * disponible, sinon SOCKS5.
+ */
+export function parseProxyJson(text, options = {}) {
+  const limit = Number(options.limit) > 0 ? Number(options.limit) : Infinity;
+  let rows;
+  try {
+    rows = JSON.parse(String(text || ''));
+  } catch {
+    return [];
+  }
+
+  const list = Array.isArray(rows) ? rows : (rows && Array.isArray(rows.data) ? rows.data : []);
+  const seen = new Set();
+  const out = [];
+  for (const row of list) {
+    if (!row) continue;
+    const host = String(row.ip || row.host || '').trim();
+    const port = Number(row.port);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) continue;
+
+    const protocols = Array.isArray(row.protocols)
+      ? row.protocols.map((value) => String(value).toLowerCase())
+      : [];
+    const scheme = protocols.includes('socks5') && !protocols.includes('http') ? 'socks5' : 'http';
+    const key = scheme + '://' + host + ':' + port;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const proxy = {
+      host,
+      port,
+      auth: row.username && row.password ? row.username + ':' + row.password : null,
+      anonymous: String(row.anonymityLevel || '').toLowerCase() !== 'transparent',
+    };
+    if (scheme !== 'http') proxy.scheme = scheme;
     out.push(proxy);
     if (out.length >= limit) break;
   }
