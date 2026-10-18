@@ -32,6 +32,7 @@ import {
   extractSlug,
   guessViews,
   parseChallenge,
+  parseProxyHtml,
   parseProxyJson,
   parseProxyList,
   pathOf,
@@ -701,8 +702,13 @@ export async function harvest(options = {}) {
 
   const answers = await Promise.all(sources.map(async (source) => {
     try {
+      // Les listes « en dur » acceptent tout ; les pages HTML sont souvent
+      // derrière Cloudflare : on se présente comme un navigateur ordinaire.
+      const headers = source.type === 'html'
+        ? { accept: 'text/html,application/xhtml+xml,*/*', 'user-agent': BROWSERS[0].ua }
+        : { accept: 'text/plain,*/*' };
       const response = await fetch(source.url, {
-        headers: { accept: 'text/plain,*/*' },
+        headers,
         signal: timeoutSignal(timeout),
       });
       if (!response.ok) {
@@ -722,7 +728,9 @@ export async function harvest(options = {}) {
       report.push({ name: answer.name, count: 0, error: answer.error });
       continue;
     }
-    const parser = answer.type === 'json' ? parseProxyJson : parseProxyList;
+    const parser = answer.type === 'json' ? parseProxyJson
+      : answer.type === 'html' ? parseProxyHtml
+        : parseProxyList;
     let kept = 0;
     for (const proxy of parser(answer.text, { limit: perSource, scheme: answer.scheme })) {
       const key = (proxy.scheme || 'http') + '://' + proxy.host + ':' + proxy.port;

@@ -206,10 +206,16 @@ BLAKE3 et SHA-256 (`node:crypto`) sans la moindre dépendance, et
 `test/guns.test.js` recoupe BLAKE3 sur les vecteurs officiels (0, 1 et 1024
 octets).
 
-**Les proxys.** `public/lib/guns.js` liste sept sources publiques (proxifly,
-monosans, mmpx12, roosterkid, zloi-user, hookzof, Geonode). Toutes sont
-revérifiées en continu et annoncent explicitement le protocole : les listes
-fourre-tout n'offrent que 5 à 15 % de survivants, celles-ci bien davantage. Un
+**Les proxys.** `public/lib/guns.js` liste une vingtaine de sources publiques
+(proxifly, monosans, mmpx12, roosterkid, zloi-user, hookzof, Geonode,
+ProxyScrape, proxy-list.download…), dont plusieurs sites qui ne publient
+qu'une page HTML — free-proxy-list.net, us-proxy.org, sslproxies.org,
+proxypremium.top, free-proxy.cz, hidemy.name, openproxy.space,
+webtools.ipfail.org : `parseProxyHtml` lit leurs tableaux
+`<td>ip</td><td>port</td>`, décode les IP en Base64 de free-proxy.cz, et
+retient tout « ip:port » en clair à défaut. Toutes ces listes sont
+revérifiées en continu par leurs auteurs : une liste fourre-tout n'offre que
+5 à 15 % de survivants, elles bien davantage. Un
 candidat ne passe que si un vrai `CONNECT` (ou une poignée de main SOCKS5) suivi
 d'une requête HTTP complète vers `guns.lol:443` répond en 2xx ou en 3xx.
 Le transport est écrit à la main
