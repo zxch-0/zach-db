@@ -6,14 +6,14 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#050505">
 <title>zach-db — tools by zach</title>
-<meta name="description" content="zach-db, a monochrome instrument: black, white and motion only. No color, no emoji, no image, no framework, no external request.">
+<meta name="description" content="zach-db — tools by zach.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><rect width='48' height='48' rx='11' fill='%23050505'/><circle cx='24' cy='24' r='20' fill='none' stroke='%23fff' stroke-width='1.6' stroke-dasharray='3 5' opacity='.7'/><circle cx='24' cy='24' r='15' fill='none' stroke='%23fff' stroke-width='1.8'/><path d='M17 18.5h14L17 29.5h14' fill='none' stroke='%23fff' stroke-width='3'/><circle cx='24' cy='24' r='2.2' fill='%23fff'/></svg>">
 <link rel="stylesheet" href="/styles.css">
 <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
 
-<a class="skip" href="#manifesto">Skip to the manifesto</a>
+<a class="skip" href="#top">Skip to the content</a>
 
 <!-- ==================== décor : halos, grain, fond animé ==================== -->
 <div class="ambient" aria-hidden="true">
@@ -69,10 +69,8 @@
 
     <nav class="nav" aria-label="Sections">
       <a href="#signal">Signal</a>
-      <a href="#manifesto">Manifesto</a>
+      <a href="#top">Top</a>
     </nav>
-
-    <p class="local-note"><span class="pulse" aria-hidden="true"></span>Monochrome · zero external request</p>
 
     <a class="discord-link" href="https://discord.gg/uKZAZS8kY9" target="_blank" rel="noopener noreferrer" aria-label="Join the Discord server (opens in a new tab)">
       <svg class="discord-logo" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -92,26 +90,20 @@
   <section class="hero hero-void">
     <div class="wrap hero-grid">
 
-      <div class="hero-copy">
-        <p class="kicker"><b>zach-db</b> — monochrome instrument</p>
+      <div class="hero-copy reveal">
+        <p class="kicker"><b>zach-db</b></p>
 
         <h1>
           <span class="line">Pure signal,</span>
           <span class="line"><span class="shimmer">no noise.</span></span>
         </h1>
 
-        <p class="decode" data-decode="BLACK / WHITE / MOTION — TOOLS BY ZACH">BLACK / WHITE / MOTION — TOOLS BY ZACH</p>
-
-        <p class="lead">
-          Everything on this page is drawn with CSS, SVG and canvas: no color, no emoji, no image,
-          no framework, no external request. Only black, white — and motion that freezes into a
-          single still frame the moment your system asks for less movement.
-        </p>
+        <p class="decode" data-decode="TOOLS BY ZACH">TOOLS BY ZACH</p>
 
         <a class="cue" href="#signal"><span class="cue-line" aria-hidden="true"></span>Scroll</a>
       </div>
 
-      <div class="hero-instrument">
+      <div class="hero-instrument reveal">
         <div class="core" aria-hidden="true">
           <canvas class="core-canvas" id="coreCanvas"></canvas>
           <span class="core-ring"></span>
@@ -126,14 +118,13 @@
             </svg>
           </span>
         </div>
-        <p class="core-caption">wireframe core · <span id="coreNodes">504</span> nodes · pointer reactive</p>
       </div>
 
     </div>
   </section>
 
   <!-- ==================== télémétrie ==================== -->
-  <div class="telemetry" aria-hidden="true">
+  <div class="telemetry reveal" aria-hidden="true">
     <div class="tel">
       <p class="tel-item"><span class="tel-key">local time</span><span class="tel-val" id="telClock">00:00:00</span></p>
       <p class="tel-item"><span class="tel-key">frame rate</span><span class="tel-val" id="telFps">-- fps</span></p>
@@ -148,58 +139,19 @@
   <div class="marquee" aria-hidden="true">
     <div class="marquee-track">
       <span class="marquee-group">
-        <i>pure signal</i><i>no noise</i><i>monochrome</i><i>zero external request</i><i>no framework</i>
-        <i>no emoji</i><i>canvas instruments</i><i>motion on demand</i><i>tools by zach</i><i>black and white</i>
+        <i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i>
+        <i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i>
       </span>
       <span class="marquee-group">
-        <i>pure signal</i><i>no noise</i><i>monochrome</i><i>zero external request</i><i>no framework</i>
-        <i>no emoji</i><i>canvas instruments</i><i>motion on demand</i><i>tools by zach</i><i>black and white</i>
+        <i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i>
+        <i>zach-db</i><i>tools by zach</i><i>zach-db</i><i>tools by zach</i><i>zach-db</i>
       </span>
     </div>
   </div>
 
   <!-- ==================== oscilloscope ==================== -->
-  <section class="signal" id="signal">
+  <section class="signal reveal" id="signal">
     <canvas class="signal-canvas" id="signalCanvas" aria-hidden="true"></canvas>
-    <p class="signal-label" aria-hidden="true">signal · <b>live oscilloscope</b></p>
-    <p class="signal-note" aria-hidden="true">no input — the page draws itself</p>
-  </section>
-
-  <!-- ==================== manifeste ==================== -->
-  <section class="stage" id="manifesto">
-
-    <header class="section-head reveal">
-      <h2 class="section-title"><span class="num">01</span><span>Manifesto</span><span class="panel-line" aria-hidden="true"></span><span class="panel-hint">three rules, no exception</span></h2>
-      <p class="section-sub">The look of this site is not a skin on top of the code: it is the code with nothing added.</p>
-    </header>
-
-    <div class="principles">
-      <article class="panel card reveal">
-        <h3 class="principle-title">Monochrome</h3>
-        <p>
-          Black, white, and every grey between them. No color, no emoji, no photograph, no icon
-          font: each mark you see is a border, a gradient, a path or a pixel drawn on a canvas.
-        </p>
-      </article>
-
-      <article class="panel card reveal">
-        <h3 class="principle-title">Zero request</h3>
-        <p>
-          No CDN, no analytics, no third-party font, no build step. The page talks to nobody and
-          weighs a few tens of kilobytes — it opens as fast offline as it does online.
-        </p>
-      </article>
-
-      <article class="panel card reveal">
-        <h3 class="principle-title">Motion, on demand</h3>
-        <p>
-          The grid runs, the core turns, the signal breathes. Ask your system for reduced motion
-          and every layer freezes on a single, still, composed frame — nothing disappears.
-        </p>
-      </article>
-    </div>
-
-    <p class="statement reveal">No color. No emoji. No image. No framework. No request.</p>
   </section>
 
 </main>
@@ -207,8 +159,7 @@
 <footer class="site-foot">
   <div class="wrap foot-inner">
     <p class="ghost-row" aria-hidden="true"><span class="ghost-word">tools</span><span class="ghost-word">by</span><span class="ghost-word">zach</span></p>
-    <p class="foot-line"><span>tools by zach</span><span>monochrome · zero external request</span></p>
-    <p class="foot-line"><span>Drawn with CSS, SVG and canvas — no image, no emoji, no font loaded</span><span>MIT</span></p>
+    <p class="foot-line"><span>tools by zach</span><span>MIT</span></p>
   </div>
 </footer>
 

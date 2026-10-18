@@ -403,7 +403,7 @@ function createCore(canvas) {
     if (next) surface = next;
   }
 
-  return { draw, resize, nodes: nodes.length };
+  return { draw, resize };
 }
 
 /* ==================================================================
@@ -566,17 +566,15 @@ const pad = (value) => String(value).padStart(2, '0');
 const fmt = typeof Intl !== 'undefined' ? new Intl.NumberFormat('en-US') : null;
 const count = (value) => (fmt ? fmt.format(value) : String(value));
 
-function initTelemetry(dustCount, nodeCount) {
+function initTelemetry(dustCount) {
   const clock = byId('telClock');
   const fps = byId('telFps');
   const dust = byId('telDust');
   const ptr = byId('telPointer');
   const uptime = byId('telUptime');
-  const nodes = byId('coreNodes');
-  if (!clock && !fps && !dust && !ptr && !uptime && !nodes) return; // pas de télémétrie sur cette page
+  if (!clock && !fps && !dust && !ptr && !uptime) return; // pas de télémétrie sur cette page
 
   if (dust) dust.textContent = count(dustCount);
-  if (nodes) nodes.textContent = count(nodeCount);
 
   const startedAt = Date.now();
   const render = () => {
@@ -610,7 +608,7 @@ function boot() {
   if (!layers.length) return; // aucun canvas : la page reste lisible, sans décor animé
 
   initDecode();
-  initTelemetry(voidLayer ? voidLayer.count : 0, coreLayer ? coreLayer.nodes + SCAN_POINTS : 0);
+  initTelemetry(voidLayer ? voidLayer.count : 0);
 
   let pending = 0;
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {

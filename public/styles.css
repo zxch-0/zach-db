@@ -1691,46 +1691,6 @@ body.is-busy .status { border-left-color: var(--tick); }
    (aucun outil n'y est cité : le sélecteur d'en-tête est la seule porte)
    ========================================================================== */
 
-.section-head { margin: 0 0 clamp(15px, 2vw, 22px); }
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-}
-
-.section-sub {
-  margin: 10px 0 0;
-  max-width: 74ch;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.01em;
-  color: var(--muted);
-}
-
-/* ---------- socle commun ---------- */
-
-.principles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(14px, 2vw, 22px);
-}
-
-.principle-title {
-  margin: 0 0 10px;
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-}
-
-.principles p { margin: 0; font-size: 12.8px; color: var(--ink-soft); }
-
 /* ---------- accroche plein cadre ---------- */
 
 .hero-void {
@@ -1886,16 +1846,6 @@ html.void .core-logo .logo { filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.
 .core::before { left: -12px; top: -12px; border-right: 0; border-bottom: 0; }
 .core::after { right: -12px; bottom: -12px; border-left: 0; border-top: 0; }
 
-.core-caption {
-  margin: 26px 0 0;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--muted);
-  text-align: center;
-}
-
 /* ---------- télémétrie : la page se mesure elle-même ---------- */
 
 .telemetry {
@@ -1955,44 +1905,6 @@ html.void .core-logo .logo { filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.
 .signal { position: relative; z-index: 1; border-bottom: 1px solid var(--hair); }
 
 .signal-canvas { display: block; width: 100%; height: clamp(120px, 17vh, 190px); }
-
-.signal-label {
-  position: absolute;
-  left: 20px;
-  top: 13px;
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  color: var(--muted);
-}
-
-.signal-label b { font-weight: 500; color: var(--ink-soft); }
-
-.signal-note {
-  position: absolute;
-  right: 20px;
-  bottom: 12px;
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-
-/* ---------- phrase de clôture ---------- */
-
-.statement {
-  margin: clamp(24px, 3vw, 38px) 0 0;
-  padding-top: 22px;
-  border-top: 1px solid var(--hair);
-  font-size: clamp(1rem, 2vw, 1.4rem);
-  letter-spacing: -0.02em;
-  text-align: center;
-  color: var(--ink-soft);
-}
 
 /* ---------- pied de page : mots fantômes ---------- */
 
@@ -2075,7 +1987,6 @@ html.js .reveal.in {
   .hero-grid { grid-template-columns: 1fr; }
   .demo { max-width: 620px; }
   .nav { display: none; }
-  .principles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero-void { min-height: 0; justify-content: flex-start; }
   .core { width: min(74%, 380px); }
 }
@@ -2105,7 +2016,6 @@ html.js .reveal.in {
   .head-inner { flex-wrap: wrap; gap: 10px 14px; }
   .toolswitch { order: 1; margin-left: auto; }
   .toolswitch-menu { width: min(340px, calc(100vw - 28px)); }
-  .principles { grid-template-columns: minmax(0, 1fr); }
   .crumb { margin-bottom: 14px; font-size: 9.5px; letter-spacing: 0.11em; }
   .core { width: min(86%, 320px); }
   .core::before, .core::after { display: none; }
@@ -2113,7 +2023,6 @@ html.js .reveal.in {
   .tel-item:nth-child(2n) { border-right: 0; }
   .cue { margin-top: 24px; }
   .decode { font-size: 10px; letter-spacing: 0.14em; }
-  .signal-note { display: none; }
   .discord-link { order: 2; }
   .local-note { order: 3; font-size: 8.5px; padding: 5px 9px; letter-spacing: 0.07em; }
   .specs { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; }

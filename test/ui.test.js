@@ -194,7 +194,6 @@ test('home.js dessine ses trois calques, décode sa ligne et remplit la télém�
   assert.equal(nodes.get('telPointer').textContent, '0.50 / 0.50', 'pointeur au centre par défaut');
   assert.equal(Number(nodes.get('telDust').textContent.replace(/[^0-9]/g, '')) > 20, true,
     'poussière comptée');
-  assert.equal(nodes.get('coreNodes').textContent, '504', '12 parallèles x 36 points + anneau de balayage');
 });
 
 test('app.js et la page de l’outil sont cohérents', () => {

@@ -88,8 +88,8 @@ test('accueil : aucune citation d’outil en dehors du menu déroulant', () => {
   assert.ok(!home.includes('id="groupForm"'), 'l’accueil ne traite rien');
   assert.ok(!home.includes('btn-solid'), 'aucun bouton plein sur l’accueil');
   assert.ok(!home.includes('data-tool='), 'plus de carte d’outil sur l’accueil');
-  assert.match(home, /id="manifesto"/, 'manifeste présent');
   assert.match(home, /id="signal"/, 'oscilloscope présent');
+  assert.match(home, /id="voidCanvas"/, 'fond animé présent');
   assert.match(home, /<script src="\/home.js" type="module">/, 'moteur visuel chargé par l’accueil');
 });
 
