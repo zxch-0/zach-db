@@ -66,31 +66,6 @@ export const TOOLS = [
       'The token never reaches the browser: the server proxies every call to Discord',
     ],
   },
-  {
-    id: 'guns-views',
-    name: 'Guns.lol views',
-    short: 'Guns views',
-    tagline: 'Push a guns.lol profile counter up with free public proxies: harvest, test, then fire real view requests.',
-    description:
-      'A guns.lol username and a pile of public proxies are enough. The server harvests the free lists, triages ' +
-      'them with a real CONNECT + TLS test against guns.lol, then replays what a browser does on a profile — the ' +
-      'page, the analytics pixel, the view endpoint and the signed analytics event — each attempt on its own ' +
-      'address. Every layer reports what it answered, so nothing is counted twice or invented.',
-    path: '/tools/guns-views/',
-    status: 'available',
-    tags: ['free proxies', 'connect tunnel', 'proof of work', 'one ip one view'],
-    input: 'a guns.lol username, a profile link, or @username',
-    output: 'a per-attempt log, layer counters and the full JSON report',
-    speed: '~1500 proxies tested · 15 views',
-    api: '/api/guns/views',
-    cli: 'node cli.js guns username',
-    points: [
-      'Proxies harvested from seven public lists, then kept only when a tunnel + TLS test succeeds',
-      'Four layers replayed in order: page, analytics pixel, view endpoint, signed event',
-      'A layer that keeps failing is dropped mid-run instead of wasting every proxy',
-      'No account, no token: guns.lol is only ever spoken to as a browser',
-    ],
-  },
 ];
 
 /** Outils utilisables dès maintenant. */

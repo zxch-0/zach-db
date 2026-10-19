@@ -17,11 +17,6 @@
  *   DISCORD_TOKEN=... node cli.js discord <id>          # profil complet
  *   node cli.js discord <id> --guilds --json -o w.json  # serveurs communs, en JSON
  *
- * Guns.lol views :
- *   node cli.js guns <pseudo>                          # des vues, via des proxys
- *   node cli.js guns <pseudo> --views=25 --json -o r.json
- *   node cli.js guns <pseudo> --direct                  # sans proxy, une vue par tour
- *
  * Options : -o/--out, --mode, --regex, --dedupe, --stats, --group, --site,
  *           --split, --json, --exact, --keep-hosts, --help,
  *           discord, --token, --guilds, --size
@@ -34,7 +29,6 @@ import zlib from 'node:zlib';
 import { createProcessor, MODES } from './public/lib/parse.js';
 import { createGrouper, NO_SITE } from './public/lib/group.js';
 import { lookup as discordLookup } from './public/lib/discord-api.js';
-import { boost as gunsBoost, inspectPool as gunsPool } from './public/lib/guns-api.js';
 
 function usage() {
   process.stdout.write(`zach-db — extrait les morceaux "xxxx:xxxx" de gros fichiers texte
@@ -66,17 +60,6 @@ discord lookup :
       --size <côté>     taille des visuels demandés au CDN (16 à 4096, 1024)
       --json            la réponse complète en JSON
 
-guns.lol views :
-  guns <pseudo>         pousse des vues sur un profil, une par proxy public
-      --views <n>       nombre de vues (défaut : 15)
-      --rounds <n>      tours successifs (défaut : 1)
-      --proxies <n>     proxys récoltés au plus (défaut : 1500)
-      --concurrency <n> vues en parallèle (défaut : 6)
-      --direct          sans proxy : l'adresse du serveur, une vue par tour
-      --read            lit aussi le compteur, avant et après (au mieux)
-      --pool            ne fait que tester la réserve de proxys
-      --json            le rapport complet en JSON
-
 entrées : fichiers .txt / .log / .csv / .gz, ou stdin (rien à lire = stdin)
 `);
 }
@@ -86,8 +69,6 @@ function parseArgs(argv) {
     mode: 'last', regex: '', dedupe: false, hosts: false, out: null, stats: false,
     group: false, json: false, exact: false, site: null, split: null, inputs: [],
     command: null, token: null, guilds: false, size: null,
-    views: null, rounds: null, proxies: null, concurrency: null,
-    direct: false, read: false, pool: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -113,22 +94,10 @@ function parseArgs(argv) {
     else if (arg === '--guilds') options.guilds = true;
     else if (arg === '--size') options.size = argv[++i];
     else if (arg.startsWith('--size=')) options.size = Number(arg.slice(7));
-    else if (arg === '--views') options.views = argv[++i];
-    else if (arg.startsWith('--views=')) options.views = arg.slice(8);
-    else if (arg === '--rounds') options.rounds = argv[++i];
-    else if (arg.startsWith('--rounds=')) options.rounds = arg.slice(9);
-    else if (arg === '--proxies') options.proxies = argv[++i];
-    else if (arg.startsWith('--proxies=')) options.proxies = arg.slice(10);
-    else if (arg === '--concurrency') options.concurrency = argv[++i];
-    else if (arg.startsWith('--concurrency=')) options.concurrency = arg.slice(14);
-    else if (arg === '--direct') options.direct = true;
-    else if (arg === '--read') options.read = true;
-    else if (arg === '--pool') options.pool = true;
     else if (arg.startsWith('-') && arg !== '-') throw new Error('option inconnue : ' + arg);
     else options.inputs.push(arg);
   }
   if (options.inputs[0] === 'discord') options.command = 'discord';
-  if (options.inputs[0] === 'guns') options.command = 'guns';
   if (!MODES.includes(options.mode)) throw new Error('mode inconnu : ' + options.mode + ' (' + MODES.join(', ') + ')');
   return options;
 }
@@ -368,93 +337,10 @@ async function discordMain(options) {
   if (!payload.ok) process.exitCode = 1;
 }
 
-/* ==================================================================
-   guns.lol views — une vue par proxy public
-   ================================================================== */
-
-function gunsText(report) {
-  let out = '';
-  out += 'profil         : ' + (report.slug || '-') + '  (' + (report.target || '-') + ')\n';
-  if (!report.ok) {
-    out += 'erreur         : ' + report.error + (report.hint ? ' — ' + report.hint : '') + '\n';
-    return out;
-  }
-
-  out += 'mode           : ' + report.mode + '\n';
-  out += 'proxys         : ' + report.pool.harvested + ' récoltés, ' + report.pool.tested +
-    ' testés, ' + report.pool.alive + ' utilisables, ' + report.pool.dead + ' morts (' +
-    report.pool.ms + ' ms)\n';
-  out += 'couches        : page ' + report.steps.page.ok + '/' + report.steps.page.tried +
-    ' · pixel ' + report.steps.pixel.ok + '/' + report.steps.pixel.tried +
-    ' · view ' + report.steps.view.ok + '/' + report.steps.view.tried +
-    ' · événement ' + report.steps.record.ok + '/' + report.steps.record.tried + '\n';
-  out += 'vues           : ' + report.views.accepted + ' acceptées sur ' + report.views.attempts +
-    ' tentées (' + report.views.failed + ' échecs)\n';
-  out += 'compteur       : ' + (report.counter.after !== null
-    ? report.counter.after + (report.counter.delta === null ? '' : ' (' + report.counter.delta + ')')
-    : report.counter.fromPages !== null ? report.counter.fromPages + ' (lu dans la page)' : 'illisible') + '\n';
-  out += 'durée          : ' + report.elapsed + ' ms' + (report.truncated ? ' (arrêt anticipé)' : '') + '\n';
-
-  if (report.notes.length) {
-    out += '\nnotes :\n';
-    for (const line of report.notes) out += '  - ' + line + '\n';
-  }
-  if (report.pool.sources.length) {
-    out += '\nsources :\n';
-    for (const source of report.pool.sources) {
-      out += '  ' + source.name.padEnd(22) + (source.error ? source.error : source.count + ' gardés') + '\n';
-    }
-  }
-  out += '\nLes vues mettent quelques minutes à apparaître : le compteur est celui de guns.lol.\n';
-  return out;
-}
-
-async function gunsMain(options) {
-  if (options.pool) {
-    const pool = await gunsPool({ proxies: options.proxies, concurrency: options.concurrency });
-    const body = options.json
-      ? JSON.stringify(pool, null, 2) + '\n'
-      : 'proxys         : ' + pool.harvested + ' récoltés, ' + pool.tested + ' testés, ' +
-        pool.alive + ' utilisables, ' + pool.dead + ' morts (' + pool.elapsed + ' ms)\n' +
-        (pool.sample.length
-          ? '\nutilisables :\n' + pool.sample.map((entry) => '  ' + entry.proxy + '  ' + entry.ms + ' ms').join('\n') + '\n'
-          : '') +
-        (pool.sources.length
-          ? '\nsources :\n' + pool.sources.map((source) => '  ' + source.name.padEnd(22) + (source.error || source.count + ' gardés')).join('\n') + '\n'
-          : '');
-    if (options.out) {
-      await fsp.writeFile(options.out, body);
-      process.stderr.write('écrit : ' + path.resolve(options.out) + '\n');
-    } else {
-      await new Promise((resolve) => process.stdout.write(body, resolve));
-    }
-    return;
-  }
-
-  const report = await gunsBoost(options.inputs[1] || '', {
-    views: options.views,
-    rounds: options.rounds,
-    proxies: options.proxies,
-    concurrency: options.concurrency,
-    direct: options.direct,
-    read: options.read,
-  });
-
-  const body = options.json ? JSON.stringify(report, null, 2) + '\n' : gunsText(report);
-  if (options.out) {
-    await fsp.writeFile(options.out, body);
-    process.stderr.write('écrit : ' + path.resolve(options.out) + '\n');
-  } else {
-    await new Promise((resolve) => process.stdout.write(body, resolve));
-  }
-  if (!report.ok || !report.views.accepted) process.exitCode = 1;
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) return usage();
   if (options.command === 'discord') return discordMain(options);
-  if (options.command === 'guns') return gunsMain(options);
 
   const sources = options.inputs.length ? options.inputs : ['-'];
   for (const file of sources) {
